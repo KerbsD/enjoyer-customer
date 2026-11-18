@@ -1,36 +1,19 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Enjoyer customer menu
 
-## Getting Started
+Phase 1 of the [customer roadmap](CUSTOMER_ROADMAP.md): a mobile-first, read-only public menu, store status, and table QR entry at `/order#table=TOKEN`. Ordering and cart changes are **not available yet**; customers should ask staff to order.
 
-First, run the development server:
+## Local setup
+
+Run the Enjoyer API separately, then configure its `CORS_ORIGINS` with this frontend's origin. From this directory:
 
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The customer app runs at `http://localhost:3000` by default. `.env.example` points to the API at `http://localhost:4000`; change `NEXT_PUBLIC_API_URL` if your API uses a different origin. The admin normally runs at `http://localhost:3001`. Do not assign the API and customer app the same port.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Browse the menu at `/`. To test a table, create an active table in the admin app, use its QR code (or its local test token), and visit `/order#table=TOKEN`. The token is a credential: keep it out of logs, URLs beyond the QR fragment, and shared screenshots. For printed QR codes, configure the API's `CUSTOMER_URL` to the **actual deployed customer origin**; otherwise it may fall back to the admin `CLIENT_URL`. Do not distribute codes for live ordering until later roadmap phases are complete.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Checks: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`.
