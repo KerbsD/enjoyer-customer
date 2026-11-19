@@ -1,6 +1,6 @@
 # Enjoyer customer frontend: phased roadmap
 
-This plan follows `../specs.md` for product behavior, `../api/README.md` and the API implementation for the current contract, and `../admin` for frontend organization. Complete and verify **one phase at a time** before beginning the next. Phase 1 is implemented and the updated QR destination passes browser sign-off; physical-device checks remain before live use.
+This plan follows `../specs.md` for product behavior, `../api/README.md` and the API implementation for the current contract, and `../admin` for frontend organization. Complete and verify **one phase at a time** before beginning the next. Phases 1–2 are implemented; real-API cart writes and physical-device checks are still pending. No customer order placement exists yet.
 
 ## What to carry over from the admin frontend
 
@@ -19,8 +19,8 @@ The customer project began as the default Next.js starter; Phase 1 adds the publ
 **Goal:** a scanned table reaches a useful mobile menu, without order mutation yet.
 
 - Set up the customer design tokens, fonts, page metadata, responsive shell, loading/error/empty states, API base URL, typed public request/error handling, PHP and `Asia/Manila` formatting, and initial typecheck/lint/test scripts.
-- Implement the actual QR destination `/order#table=TOKEN`. Read the fragment on the client, keep the QR token out of query strings/server requests/logs, and send it only in JSON to `POST /tables/resolve` and `POST /tables/open`, or later in the `X-Table-Token` header. Persist only as needed for same-tab refresh; a new scan must replace the previous table context. Never expose the token in rendered UI.
-- Show the validated table name and clear invalid/deactivated/missing-QR or API-offline states. `/tables/open` creates or reuses a provisional session and returns the session ID and cart. Do not silently open a replacement visit after an existing session ends.
+- Implement the actual QR destination `/order#table=TOKEN`. Read the fragment on the client, keep the QR token out of query strings/server requests/logs, and send it only in JSON to `POST /tables/resolve`, `POST /tables/open` and `POST /tables/resume`, or later in the `X-Table-Token` header. Persist only as needed for same-tab refresh; a new scan must replace the previous table context. Never expose the token in rendered UI.
+- Show the validated table name and clear invalid/deactivated/missing-QR or API-offline states. `/tables/open` creates or reuses a provisional session and returns the session ID and cart. `/tables/resume` refreshes the exact remembered visit atomically and never creates or joins another one; if it returns `TABLE_SESSION_REQUIRED`, ask before starting a replacement visit. Do not silently open a replacement visit after an existing session ends.
 - Read `GET /menu` and `GET /store/status`: categories in API order, item descriptions/prices/spicy markers, visible sold-out items disabled, a reachable category navigator, and a clear closed-hours banner. Menu remains browsable when closed; ordering controls are not live yet. If a no-QR browsing entry is offered, it must never imply that a table is selected.
 
 **Done when:** a real QR lands on the correct table/menu on a phone; bad/deactivated codes show an actionable error; browsing and closed/sold-out states work without login; tests cover fragment parsing and public API errors. Before printing QR codes, configure the API's `CUSTOMER_URL` to the deployed customer origin—otherwise codes may point at the admin `CLIENT_URL`.
@@ -33,9 +33,25 @@ The customer project began as the default Next.js starter; Phase 1 adds the publ
 
 - Build item details/customization using the public menu's `optionGroups`: available choices, required `minSelections`, maximum `maxSelections`, option surcharges, quantity, and an optional **per-line** note (API maximum 500 characters). Show exact PHP totals; keep monetary data as decimal strings/integer centavos for calculation rather than floating-point rounding.
 - Use `GET /tables/cart`, `POST /tables/cart/items`, `PATCH /tables/cart/items/:id`, and DELETE endpoints with `X-Table-Token`. Support add, edit quantity/options/note, remove, clear, and a persistently visible running total. The server cart is authoritative and survives refresh.
-- Send the last-seen cart `version` on every mutation. On `409 CART_VERSION_CONFLICT`, apply the returned latest cart, explain that another phone changed it, and require review before retrying rather than overwriting someone else's edits. Handle unavailable/hidden items and options, empty cart, token/session expiry, and temporary network failure.
+- Send the last-seen cart ID and `version` on every mutation. On `409 CART_VERSION_CONFLICT`, apply the returned latest cart, explain that another phone changed it, and require review before retrying rather than overwriting someone else's edits. A replacement visit cannot accept writes from the old cart. Handle unavailable/hidden items and options, empty cart, token/session expiry, and temporary network failure.
 
 **Done when:** two devices can see the same cart after refreshing, stale writes do not lose changes, selection rules and the 500-character note limit are enforced in the UI and API, and the cart stays intact after a short disconnect.
+
+**Verification (2026-11-18):** Unit tests cover selection/quantity/note constraints, exact centavo calculations, versioned cart requests and conflict payloads. Eight Chromium journeys against a mocked API cover add/customize/edit/remove/clear, refresh persistence, failed-add feedback, slow focus refresh, two-device conflicts and required review, a lost write response, closed-shop/sold-out states, the keyboard-accessible GSAP cart drawer, reduced-motion behavior, 320px/390px layouts, and automated axe checks. The development server was also checked in a browser with a real Table 1 QR and an intercepted add request: the dialog opens and the mocked item appears, without writing to Table 1. `GET /tables/cart` with that QR returned 200 with an empty version-0 cart and customer-origin CORS. **Still required:** write verification against a disposable real table, plus physical-device manual checks.
+
+**Pre-commit audit follow-up (2026-11-19):** The suite now has 12 unit tests and
+24 mocked Chromium journeys. Added coverage for session/editor reset, late
+responses from an old visit, refresh failure with retained cart contents, missing
+menu versus hidden items, changed option selections, unavailable-choice recovery,
+remote additions during editing, keyboard focus through drawer/editor transitions,
+malformed conflict payloads, and blocked review until recovery succeeds. Refreshes
+resume the remembered visit atomically instead of checking the session and then
+joining whatever `/tables/open` returns; tests cover both a normal resume and a
+visit replaced at the resume boundary. Request timeouts cover both headers and
+response bodies. Cart responses are validated with Zod. Browser tests build with
+a pinned mock API origin and their own server. Full and production-only
+dependency audits report zero vulnerabilities. Live writes and
+physical-device/screen-reader checks remain pending.
 
 ## Phase 3 — Review, placement, and confirmation
 

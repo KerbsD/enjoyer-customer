@@ -3,9 +3,8 @@ import { useEffect, useState } from "react";
 import {
   getMenu,
   getStoreStatus,
-  type PublicCategory,
-  type StoreStatus,
 } from "@/api/public";
+import type { PublicCategory, StoreStatus } from "@/types/public";
 import { messageFor } from "@/lib/public-error";
 import type { LoadState } from "@/types/menu";
 

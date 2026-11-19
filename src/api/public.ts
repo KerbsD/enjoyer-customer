@@ -1,80 +1,58 @@
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
+import { API_REQUEST_TIMEOUT_MS } from "@/constants/api";
+import type {
+  Envelope,
+  OpenTable,
+  PublicCategory,
+  StoreStatus,
+  Table,
+  TableVisit,
+} from "@/types/public";
+
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+).replace(/\/$/, "");
 
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
-  constructor(message: string, status: number, code?: string) {
+  readonly data?: unknown;
+  constructor(message: string, status: number, code?: string, data?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
-type Envelope<T> = { success: true; data: T; currency?: "PHP" };
-
-export type PublicOption = {
-  id: number;
-  name: string;
-  priceDelta: string;
-  isAvailable: boolean;
-  sortOrder: number;
-};
-export type PublicItem = {
-  id: number;
-  name: string;
-  description: string;
-  price: string;
-  isSpicy: boolean;
-  isAvailable: boolean;
-  sortOrder: number;
-  optionGroups: {
-    id: number;
-    name: string;
-    minSelections: number;
-    maxSelections: number;
-    options: PublicOption[];
-  }[];
-};
-export type PublicCategory = {
-  id: number;
-  name: string;
-  sortOrder: number;
-  items: PublicItem[];
-};
-export type Table = { id: number; name: string; orderLimit: number };
-export type OpenTable = {
-  table: Table;
-  session: { id: string; status: "pending" | "open"; createdAt: string };
-  cart: { id: string; version: number };
-  created: boolean;
-};
-export type StoreDay = {
-  date: string;
-  openTime: string | null;
-  closeTime: string | null;
-  closed: boolean;
-};
-export type StoreStatus = {
-  isOpen: boolean;
-  configured: boolean;
-  timezone: string;
-  today: StoreDay;
-  nextOpen: string | null;
-  closesAt: string | null;
-  week: StoreDay[];
-};
-
 export async function publicRequest<T>(
   path: string,
-  options: { method?: "GET" | "POST"; body?: unknown; tableToken?: string; signal?: AbortSignal } = {},
+  options: {
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    body?: unknown;
+    tableToken?: string;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  } = {},
 ): Promise<T> {
-  const { method = "GET", body, tableToken, signal } = options;
+  const {
+    method = "GET",
+    body,
+    tableToken,
+    signal,
+    timeoutMs = API_REQUEST_TIMEOUT_MS,
+  } = options;
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
+  let payload: unknown;
   try {
     response = await fetch(`${API_URL}${path}`, {
       method,
-      signal,
+      signal: controller.signal,
       cache: "no-store",
       headers: {
         Accept: "application/json",
@@ -83,23 +61,42 @@ export async function publicRequest<T>(
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    // Include body consumption in the timeout: a response can stall after headers.
+    payload = await response.json();
   } catch (error) {
     if (signal?.aborted) throw error;
-    throw new ApiError("We can't reach the shop right now. Check your connection and try again.", 0);
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const failure = payload && typeof payload === "object"
-      ? payload as { message?: unknown; code?: unknown }
-      : {};
     throw new ApiError(
-      typeof failure.message === "string" ? failure.message : "Something went wrong. Please try again.",
+      "We can't reach the shop right now. Check your connection and try again.",
+      0,
+    );
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
+  }
+  if (!response.ok) {
+    const failure =
+      payload && typeof payload === "object"
+        ? (payload as { message?: unknown; code?: unknown })
+        : {};
+    throw new ApiError(
+      typeof failure.message === "string"
+        ? failure.message
+        : "Something went wrong. Please try again.",
       response.status,
       typeof failure.code === "string" ? failure.code : undefined,
+      "data" in failure ? failure.data : undefined,
     );
   }
-  if (!payload || typeof payload !== "object" || !("success" in payload) || payload.success !== true) {
-    throw new ApiError("The shop returned an unexpected response. Please try again.", response.status);
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !("success" in payload) ||
+    payload.success !== true
+  ) {
+    throw new ApiError(
+      "The shop returned an unexpected response. Please try again.",
+      0,
+    );
   }
   return payload as T;
 }
@@ -110,13 +107,23 @@ export const getStoreStatus = (signal?: AbortSignal) =>
   publicRequest<Envelope<StoreStatus>>("/store/status", { signal });
 export const resolveTable = (token: string, signal?: AbortSignal) =>
   publicRequest<Envelope<Table>>("/tables/resolve", {
-    method: "POST", body: { token }, signal,
+    method: "POST",
+    body: { token },
+    signal,
   });
 export const openTable = (token: string, signal?: AbortSignal) =>
   publicRequest<Envelope<OpenTable>>("/tables/open", {
-    method: "POST", body: { token }, signal,
+    method: "POST",
+    body: { token },
+    signal,
   });
-export const getCurrentOrdersSession = (token: string, signal?: AbortSignal) =>
-  publicRequest<Envelope<{ session: { id: string } }>>("/tables/orders", {
-    tableToken: token, signal,
+export const resumeTable = (
+  token: string,
+  sessionId: string,
+  signal?: AbortSignal,
+) =>
+  publicRequest<Envelope<TableVisit>>("/tables/resume", {
+    method: "POST",
+    body: { token, sessionId },
+    signal,
   });
