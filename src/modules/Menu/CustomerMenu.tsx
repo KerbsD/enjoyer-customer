@@ -6,6 +6,7 @@ import type { StoreStatus } from "@/types/public";
 import { shopClock, shopTime } from "@/lib/shop-format";
 
 import SharedCart from "@/modules/Cart/SharedCart";
+import TableOrders from "@/modules/Order/TableOrders";
 import ItemCustomizer from "./ItemCustomizer";
 import MenuCategories from "./MenuCategories";
 
@@ -165,7 +166,7 @@ function CustomerMenuContent({
             >
               {table.kind === "ready" && (
                 <>
-                  <div>
+                  <div className="min-w-0 wrap-anywhere">
                     <span className="mb-0.5 block text-[11px] font-extrabold tracking-[0.17em] text-[#f4cf5f]">
                       YOU&apos;RE AT
                     </span>
@@ -173,15 +174,13 @@ function CustomerMenuContent({
                       {table.table.name}
                     </strong>
                   </div>
-                  <span className="whitespace-nowrap text-[11px] font-extrabold tracking-[0.17em] text-[#d0c9bb] max-[720px]:hidden">
-                    TAKE YOUR TIME{" "}
-                    <span
-                      className="ml-1.75 text-[15px] text-accent"
-                      aria-hidden="true"
-                    >
-                      ✳
-                    </span>
-                  </span>
+                  <TableOrders
+                    sessionId={table.sessionId}
+                    tableName={table.table.name}
+                    storeOpen={store.kind === "ready" && store.data.isOpen}
+                    canOrder={canAdd && menu.kind === "ready"}
+                    endVisit={visit.endVisit}
+                  />
                 </>
               )}
               {table.kind === "loading" && <p>Checking your table…</p>}

@@ -32,8 +32,28 @@ export const placementSchema = z.object({
   summary,
 });
 
+export const tableOrderSchema = order.extend({
+  createdAt: z.iso.datetime(),
+  paymentStatus: z.enum(["paid", "unpaid"]),
+  cancellationReason: z.string().nullable(),
+  rejectionReason: z.string().nullable(),
+  items: z.array(z.object({
+    id: count,
+    name: z.string(),
+    quantity: z.number().int().positive(),
+    note: z.string(),
+    lineTotal: money,
+    options: z.array(z.object({
+      id: count,
+      name: z.string(),
+      groupName: z.string(),
+      priceDelta: money,
+    })),
+  })),
+});
+
 export const visitOrdersSchema = z.object({
-  session: z.object({ id: z.uuid() }),
-  orders: z.array(order),
-  summary,
+  session: z.object({ id: z.uuid(), status: z.enum(["pending", "open"]) }),
+  orders: z.array(tableOrderSchema),
+  summary: summary.extend({ total: money, ordersUsed: count, awaitingConfirmation: z.boolean() }),
 });

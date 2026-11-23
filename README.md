@@ -1,6 +1,6 @@
 # Enjoyer customer menu
 
-Phases 1–3 of the [customer roadmap](CUSTOMER_ROADMAP.md): mobile-first public menu, store status, table QR entry at `/order#table=TOKEN`, item customization, a versioned shared cart, and order placement. Order tracking and cancellation are later phases.
+Phases 1–4 of the [customer roadmap](CUSTOMER_ROADMAP.md): mobile-first public menu, store status, table QR entry, a shared cart, checkout, and table-order tracking and cancellation. Live push updates are a later phase.
 
 ## Local setup
 
@@ -34,6 +34,11 @@ From the cart, tap **Review order**, verify the table, items and total, then tap
 **Place order**. The first order waits for staff confirmation. Pay at the counter
 when the order is served; the app does not take payment. If the confirmation
 response is lost, check the attempted order before trying again.
+
+Open **Table orders** to see the current visit’s orders, payment status, total
+and remaining allowance. Reopen it or tap **Refresh orders** for the latest
+status. Orders can be cancelled before preparation; cancelling does not put
+items back into the cart. For later changes, ask staff.
 
 Deploy this frontend with the matching API version that supports `/tables/resume`,
 requires `cartId` on cart writes, and supports the reviewed checkout request.

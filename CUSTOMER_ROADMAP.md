@@ -1,6 +1,6 @@
 # Enjoyer customer frontend: phased roadmap
 
-This plan follows `../specs.md` for product behavior, `../api/README.md` and the API implementation for the current contract, and `../admin` for frontend organization. Complete and verify **one phase at a time** before beginning the next. Phases 1–3 are implemented; real-API cart/checkout and physical-device sign-off are still pending.
+This plan follows `../specs.md` for product behavior, `../api/README.md` and the API implementation for the current contract, and `../admin` for frontend organization. Complete and verify **one phase at a time** before beginning the next. Phases 1–4 are implemented; real-API cart, checkout, tracking and physical-device sign-off are still pending.
 
 ## What to carry over from the admin frontend
 
@@ -72,6 +72,11 @@ physical-device/screen-reader checks remain pending.
 - Offer “order again” only when the store is open, the table/session remains valid, confirmation is not pending, and capacity remains. These are UI hints; the API makes the final decision.
 
 **Done when:** a second phone with the same QR sees the current visit, cancellation changes the count/total correctly, and a staff-closed/expired session cannot accidentally show the next visit's orders.
+
+**Automated verification:** Mocked browser tests cover second-phone tracking,
+order details, cancellation and remaining capacity, a staff status race, and
+visit replacement. Verify the same flow on two phones and a disposable API
+table before sign-off. Live push updates are Phase 5.
 
 ## Phase 5 — Live synchronization and recovery
 

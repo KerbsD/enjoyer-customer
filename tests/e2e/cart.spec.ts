@@ -133,8 +133,16 @@ async function fixture(context: BrowserContext, closed = false) {
   let loseOrderResponse = false;
   let loseOrderBeforeCommit = false;
   let failOrderReads = false;
+  let raceCancellation = false;
+  let cancelPosts = 0;
   let orderFailure: { code: string; message: string } | null = null;
-  const placedOrders: { id: string; tableSessionId: string; orderNumber: string; status: string; total: string }[] = [];
+  const placedOrders: {
+    id: string; tableSessionId: string; orderNumber: string; status: string; total: string;
+    createdAt: string; paymentStatus: string; cancellationReason: string | null;
+    rejectionReason: string | null; items: {
+      id: number; name: string; quantity: number; note: string; lineTotal: string; options: Line["options"];
+    }[];
+  }[] = [];
   const replaceVisit = () => {
     currentSessionId = "22222222-2222-4222-8222-222222222222";
     cartId = "44444444-4444-4444-8444-444444444444";
@@ -252,11 +260,23 @@ async function fixture(context: BrowserContext, closed = false) {
     }
     if (url.pathname === "/tables/orders") {
       expect(request.headers()["x-table-token"]).toBe(token);
-      const summary = () => ({ ordersRemaining: 5 - placedOrders.length });
+      const currentOrders = () => placedOrders.filter((order) => order.tableSessionId === currentSessionId);
+      const summary = () => {
+        const eligible = currentOrders().filter((order) => !["cancelled", "rejected"].includes(order.status));
+        return {
+          ordersRemaining: 5 - eligible.length, ordersUsed: eligible.length,
+          total: amount(eligible.reduce((sum, order) => sum + cents(order.total), 0)),
+          awaitingConfirmation: eligible.some((order) => order.status === "pending_confirmation"),
+        };
+      };
       if (request.method() === "GET") {
+        if (sessionEnded || url.searchParams.get("sessionId") !== currentSessionId) {
+          await send({ success: false, code: "TABLE_SESSION_REQUIRED" }, 409);
+          return;
+        }
         if (failOrderReads) await send({ success: false }, 503);
         else await send(envelope({
-          session: { id: currentSessionId }, orders: placedOrders, summary: summary(),
+          session: { id: currentSessionId, status: "pending" }, orders: currentOrders(), summary: summary(),
         }));
         return;
       }
@@ -295,6 +315,12 @@ async function fixture(context: BrowserContext, closed = false) {
       const order = {
         id: body.requestId, tableSessionId: currentSessionId, orderNumber: "20261119-001",
         status: "pending_confirmation", total: body.total,
+        createdAt: new Date().toISOString(), paymentStatus: "unpaid",
+        cancellationReason: null, rejectionReason: null,
+        items: lines.map((line) => ({
+          id: line.id, name: line.menuItem.name, quantity: line.quantity, note: line.note,
+          lineTotal: line.lineTotal, options: structuredClone(line.options),
+        })),
       };
       placedOrders.push(order);
       lines = [];
@@ -305,6 +331,31 @@ async function fixture(context: BrowserContext, closed = false) {
         return;
       }
       await send(envelope({ order, cart: cart(), summary: summary() }), 201);
+      return;
+    }
+    if (/^\/tables\/orders\/[^/]+\/cancel$/.test(url.pathname) && request.method() === "POST") {
+      expect(request.headers()["x-table-token"]).toBe(token);
+      cancelPosts++;
+      if (sessionEnded || url.searchParams.get("sessionId") !== currentSessionId) {
+        await send({ success: false, code: "TABLE_SESSION_REQUIRED" }, 409);
+        return;
+      }
+      const order = placedOrders.find((item) =>
+        item.id === url.pathname.split("/")[3] && item.tableSessionId === currentSessionId);
+      if (!order) {
+        await send({ success: false, code: "ORDER_NOT_FOUND" }, 404);
+        return;
+      }
+      if (raceCancellation) {
+        raceCancellation = false;
+        order.status = "preparing";
+      }
+      if (!["pending_confirmation", "received"].includes(order.status)) {
+        await send({ success: false, code: "ORDER_NOT_CANCELLABLE", message: "Staff have started preparing this order." }, 409);
+        return;
+      }
+      order.status = "cancelled";
+      await send(envelope(order));
       return;
     }
     if (url.pathname === "/tables/cart" && request.method() === "GET") {
@@ -476,6 +527,9 @@ async function fixture(context: BrowserContext, closed = false) {
     resumes: () => resumeCalls,
     orderPosts: () => orderPosts,
     resolutionPosts: () => resolutionPosts,
+    cancelPosts: () => cancelPosts,
+    startPreparingOnCancel: () => { raceCancellation = true; },
+    replaceVisit,
     renameFirstLine: () => { lines[0].menuItem.name = "Renamed Latte"; },
     orders: () => placedOrders.length,
     loseNextOrderResponse: () => { loseOrderResponse = true; },
@@ -1188,4 +1242,71 @@ test("a definite retry rejection shows the reason and unlocks the cart", async (
   await expect(page.getByRole("button", { name: "Review order" })).toBeEnabled();
   expect(server.resolutionPosts()).toBe(1);
   expect(server.orders()).toBe(0);
+});
+
+async function placedLatte(page: Page) {
+  await open(page);
+  const dialog = await customize(page);
+  await dialog.getByLabel("Note for this item").fill("Less ice");
+  await dialog.getByRole("button", { name: /Add to cart/ }).click();
+  const review = await reviewOrder(page);
+  await review.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByRole("heading", { name: "Order 20261119-001" })).toBeVisible();
+}
+
+async function showTableOrders(page: Page) {
+  await page.getByRole("button", { name: "Table orders", exact: true }).click();
+  return page.getByRole("dialog", { name: "Table orders" });
+}
+
+test("a second phone can track and cancel a table order", async ({ page, context }) => {
+  const server = await fixture(context);
+  await placedLatte(page);
+  const other = await context.newPage();
+  await other.setViewportSize({ width: 320, height: 700 });
+  await open(other);
+  const orders = await showTableOrders(other);
+  await expect(orders.getByText("Waiting for staff confirmation")).toBeVisible();
+  await expect(orders.getByText("Payment: Unpaid")).toBeVisible();
+  await expect(orders.getByText(/4 orders remaining/)).toBeVisible();
+  await expect(orders.getByRole("button", { name: "Order again" })).toHaveCount(0);
+  await orders.getByText("Details for order 20261119-001", { exact: true }).click();
+  await expect(orders.getByText("Note: Less ice")).toBeVisible();
+  expect((await new AxeBuilder({ page: other }).analyze()).violations).toEqual([]);
+  await orders.getByRole("button", { name: "Cancel order 20261119-001" }).click();
+  await expect(orders.getByRole("button", { name: "Keep order" })).toBeFocused();
+  expect(server.cancelPosts()).toBe(0);
+  await orders.getByRole("button", { name: "Yes, cancel order" }).click();
+  await expect(orders.getByText("Cancelled", { exact: true })).toBeVisible();
+  await expect(orders.getByText(/5 orders remaining/)).toBeVisible();
+  await expect(orders.getByText("₱0.00", { exact: true })).toBeVisible();
+  expect(server.cancelPosts()).toBe(1);
+  await orders.getByRole("button", { name: "Order again" }).click();
+  await expect(other.locator("#menu")).toBeFocused();
+  await other.close();
+});
+
+test("a cancellation status race refreshes the list and removes the cancel action", async ({ page, context }) => {
+  const server = await fixture(context);
+  await placedLatte(page);
+  await page.getByRole("button", { name: "Close cart" }).click();
+  const orders = await showTableOrders(page);
+  server.startPreparingOnCancel();
+  await orders.getByRole("button", { name: "Cancel order 20261119-001" }).click();
+  await orders.getByRole("button", { name: "Yes, cancel order" }).click();
+  await expect(orders.getByText("Staff have started preparing this order.")).toBeVisible();
+  await expect(orders.getByText("Preparing", { exact: true })).toBeVisible();
+  await expect(orders.getByRole("button", { name: /Cancel order/ })).toHaveCount(0);
+});
+
+test("a stale orders drawer never follows a replacement visit", async ({ page, context }) => {
+  const server = await fixture(context);
+  await placedLatte(page);
+  await page.getByRole("button", { name: "Close cart" }).click();
+  const orders = await showTableOrders(page);
+  await expect(orders.getByRole("heading", { name: "Order 20261119-001" })).toBeVisible();
+  server.replaceVisit();
+  await orders.getByRole("button", { name: "Refresh orders" }).click();
+  await expect(page.getByRole("button", { name: "Start a new visit" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Table orders" })).toHaveCount(0);
 });
