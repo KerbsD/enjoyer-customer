@@ -1,6 +1,6 @@
 # Enjoyer customer menu
 
-Phases 1–4 of the [customer roadmap](CUSTOMER_ROADMAP.md): mobile-first public menu, store status, table QR entry, a shared cart, checkout, and table-order tracking and cancellation. Live push updates are a later phase.
+Phases 1–5 of the [customer roadmap](CUSTOMER_ROADMAP.md): mobile-first public menu, store status, table QR entry, a shared cart, checkout, table-order tracking and cancellation, and live visit updates.
 
 ## Local setup
 
@@ -16,13 +16,14 @@ The customer app runs at `http://localhost:3000` by default. `.env.example` poin
 
 Browse the menu at `/`. To test a table, create an active table in the admin app, use its QR code (or its local test token), and visit `/order#table=TOKEN`. The token is a credential: keep it out of logs, URLs beyond the QR fragment, and shared screenshots. For printed QR codes, configure the API's `CUSTOMER_URL` to the **actual deployed customer origin**; otherwise it may fall back to the admin `CLIENT_URL`. Do not distribute codes for live ordering until later roadmap phases are complete.
 
-To add an item, tap **Customize item**, choose any required options, then tap **Add to cart** in the dialog. The first button only opens customization. **View cart** opens the shared cart in a right-side drawer; Escape or the close button dismisses it. The cart refreshes on page load, tab focus, or the **Refresh cart** button; instant push updates are planned for Phase 5. If another phone changes the cart first, review its latest contents before retrying. Notes are per item (up to 500 characters), not one order-wide note.
+To add an item, tap **Customize item**, choose any required options, then tap **Add to cart** in the dialog. The first button only opens customization. **View cart** opens the shared cart in a right-side drawer; Escape or the close button dismisses it. The cart updates live, with periodic checks if streaming is unavailable. Tab focus and **Refresh cart** still work. If another phone changes the cart first, review its latest contents before retrying. Notes are per item (up to 500 characters), not one order-wide note.
 
 The menu entrance, item dialog, and cart drawer use GSAP motion. They honor the device's reduced-motion preference.
 
 Cart/editor state resets for each visit. A refresh resumes the exact visit the
-tab remembered; if that visit was replaced or idle-expired, the app asks before
-starting a new one instead of joining the table's current visit. Remote refreshes
+tab remembered. If that visit was replaced or idle-expired, tap **Reset this
+visit** and scan the table QR again. Resetting clears the previous scan; it
+does not open or join a visit. Remote refreshes
 preserve your editing focus and keep the last loaded cart visible if the
 connection fails. Writes use the observed cart ID and version; an open clear
 confirmation is invalidated if that version changes. If the preflight read fails,
@@ -36,12 +37,13 @@ when the order is served; the app does not take payment. If the confirmation
 response is lost, check the attempted order before trying again.
 
 Open **Table orders** to see the current visit’s orders, payment status, total
-and remaining allowance. Reopen it or tap **Refresh orders** for the latest
-status. Orders can be cancelled before preparation; cancelling does not put
-items back into the cart. For later changes, ask staff.
+and remaining allowance. Status updates live when connected, and **Refresh
+orders** remains available. Orders can be cancelled before preparation;
+cancelling does not put items back into the cart. For later changes, ask staff.
 
 Deploy this frontend with the matching API version that supports `/tables/resume`,
-requires `cartId` on cart writes, and supports the reviewed checkout request.
+requires `cartId` on cart writes, and supports the reviewed checkout and
+`/tables/realtime/events` and `/tables/realtime/changes` requests.
 
 For local phone testing, set `NEXT_PUBLIC_API_URL` to the PC's LAN API URL
 in `.env.local` and, if Next.js blocks dev assets, set `NEXT_DEV_ORIGIN_HOST`

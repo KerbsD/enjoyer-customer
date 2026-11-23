@@ -1,7 +1,7 @@
 "use client";
 
 import { ClipboardList, RefreshCw, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import Drawer from "@/components/Drawer";
 import { actionButton } from "@/components/button-styles";
@@ -10,7 +10,7 @@ import { peso, shopTime } from "@/lib/shop-format";
 
 import type { TableOrder, TableOrderProps } from "@/types/orders";
 
-import useTableOrders, { canCancelOrder } from "./useTableOrders";
+import { canCancelOrder } from "./useTableOrders";
 
 function OrderDetails({ order }: { order: TableOrder }) {
   return (
@@ -53,11 +53,10 @@ function OrderDetails({ order }: { order: TableOrder }) {
 }
 
 export default function TableOrders({
-  sessionId,
   tableName,
   storeOpen,
   canOrder,
-  endVisit,
+  orders,
 }: TableOrderProps) {
   const [open, setOpen] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -65,7 +64,18 @@ export default function TableOrders({
   const refreshButton = useRef<HTMLButtonElement>(null);
   const keepOrderButton = useRef<HTMLButtonElement>(null);
   const focusMenu = useRef(false);
-  const orders = useTableOrders(open, sessionId, endVisit);
+  const { refresh } = orders;
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const onFocus = () => { if (active) void refresh(); };
+    queueMicrotask(onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [open, refresh]);
   const { data, reading, cancelling, readError, notice } = orders;
   const busy = reading || cancelling;
   const close = () => {

@@ -78,6 +78,7 @@ export default function useSharedCart(
         setState({ kind: "ready", data: result.data, sessionId });
         setRefreshError("");
         setCanReview(true);
+        return true;
       } catch (error) {
         if (!active()) return;
         if (sessionGone(error)) {
@@ -285,6 +286,7 @@ export default function useSharedCart(
       setRefreshError("");
     },
     refreshCart: () => void refreshCart(),
+    syncCart: refreshCart,
     acknowledgeReview: () => {
       if (!canReview || busyRef.current) return;
       setNeedsReview(false);

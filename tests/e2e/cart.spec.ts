@@ -135,6 +135,15 @@ async function fixture(context: BrowserContext, closed = false) {
   let failOrderReads = false;
   let raceCancellation = false;
   let cancelPosts = 0;
+  let realtimeEnabled = false;
+  let realtimeEnded = false;
+  let realtimeStream = false;
+  let streamStatus = 503;
+  let streamRejectedAt = 0;
+  let firstPollAt = 0;
+  let realtimeCartRevision = 0;
+  const observedCursors: (string | null)[] = [];
+  let failedCartReadsAfterPoll = 0;
   let orderFailure: { code: string; message: string } | null = null;
   const placedOrders: {
     id: string; tableSessionId: string; orderNumber: string; status: string; total: string;
@@ -186,6 +195,43 @@ async function fixture(context: BrowserContext, closed = false) {
       });
     if (request.method() === "OPTIONS") {
       await route.fulfill({ status: 204, headers });
+      return;
+    }
+    if (realtimeEnabled && url.pathname.startsWith("/tables/realtime/")) {
+      expect(request.headers()["x-table-token"]).toBe(token);
+      expect(url.href).not.toContain(token);
+      expect(url.searchParams.get("sessionId")).toBe(currentSessionId);
+      const revision = String(realtimeCartRevision).padStart(64, "0");
+      const state = {
+        revision,
+        scope: { kind: "table", tableId: table.id, sessionId: currentSessionId },
+        resources: { cart: revision, menu: "1", store: "1", orders: "1", tables: "1" },
+      };
+      if (realtimeEnded) {
+        await send({ code: "TABLE_SESSION_REQUIRED" }, 409);
+      } else if (url.pathname.endsWith("/events")) {
+        if (realtimeStream) {
+          realtimeStream = false;
+          await route.fulfill({
+            headers, contentType: "text/event-stream",
+            body: `event: sync\ndata: ${JSON.stringify(state)}\n\n`,
+          });
+        } else if (streamStatus === 429) {
+          streamRejectedAt = Date.now();
+          await route.fulfill({
+            status: 429,
+            headers: { ...headers, "Access-Control-Expose-Headers": "Retry-After", "Retry-After": "1" },
+            contentType: "application/json",
+            body: JSON.stringify({ success: false, code: "STREAM_LIMIT" }),
+          });
+        } else await send({ success: false }, streamStatus);
+      } else {
+        if (!firstPollAt) firstPollAt = Date.now();
+        const since = url.searchParams.get("since");
+        observedCursors.push(since);
+        if (since === revision) await route.fulfill({ status: 204, headers });
+        else await send(envelope(state));
+      }
       return;
     }
     if (url.pathname === "/menu") {
@@ -367,6 +413,7 @@ async function fixture(context: BrowserContext, closed = false) {
         return;
       }
       if (readsFail) {
+        if (observedCursors.length) failedCartReadsAfterPoll++;
         await send({ success: false, message: "Temporarily offline." }, 503);
         return;
       }
@@ -528,6 +575,13 @@ async function fixture(context: BrowserContext, closed = false) {
     orderPosts: () => orderPosts,
     resolutionPosts: () => resolutionPosts,
     cancelPosts: () => cancelPosts,
+    enableRealtime: (stream = false) => { realtimeEnabled = true; realtimeStream = stream; },
+    failRealtimeStream: (status: number) => { realtimeEnabled = true; streamStatus = status; },
+    fallbackDelay: () => firstPollAt - streamRejectedAt,
+    endRealtime: () => { realtimeEnded = true; },
+    bumpRealtimeCart: () => { realtimeCartRevision++; },
+    cursors: () => observedCursors.slice(),
+    failedCartReadsAfterPoll: () => failedCartReadsAfterPoll,
     startPreparingOnCancel: () => { raceCancellation = true; },
     replaceVisit,
     renameFirstLine: () => { lines[0].menuItem.name = "Renamed Latte"; },
@@ -868,7 +922,7 @@ test("a visit replaced at the resume boundary is never joined", async ({ page, c
   server.replaceOnNextResume();
   await page.reload();
   await expect(page.getByText(/previous visit.*has ended/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start a new visit" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset this visit" })).toBeVisible();
   expect(server.resumes()).toBe(1);
   expect(server.opens()).toBe(opens);
   expect(server.writes()).toBe(0);
@@ -936,7 +990,7 @@ test("edit waits for drawer close and Escape restores keyboard focus", async ({ 
   await expect(page.getByRole("dialog", { name: "The shared cart" })).toBeVisible();
 });
 
-test("ended visits discard the open editor before a new visit", async ({ page, context }) => {
+test("reset clears an ended visit without opening another until the QR is scanned again", async ({ page, context }) => {
   const server = await fixture(context);
   await open(page);
   await customize(page);
@@ -944,7 +998,16 @@ test("ended visits discard the open editor before a new visit", async ({ page, c
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByText(/previous visit.*has ended/)).toBeVisible();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
-  await page.getByRole("button", { name: "Start a new visit" }).click();
+  const opens = server.opens();
+  await page.getByRole("button", { name: "Reset this visit" }).click();
+  await expect(page).toHaveURL(/\/order$/);
+  await expect(page.getByText(/This page needs a table QR/)).toBeVisible();
+  await expect(page.getByTestId("cart-dock")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText(/This page needs a table QR/)).toBeVisible();
+  expect(server.opens()).toBe(opens);
+  await open(page);
+  expect(server.opens()).toBe(opens + 1);
   await expect(page.getByRole("button", { name: /Customize item/ })).toBeVisible();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   await expect(page.getByTestId("cart-dock")).toContainText("₱0.00");
@@ -959,8 +1022,8 @@ test("new visits do not inherit conflict review state", async ({ page, context }
   await expect(page.getByTestId("cart-conflict")).toBeVisible();
   server.endVisit();
   await page.getByRole("button", { name: "Refresh cart" }).click();
-  await expect(page.getByRole("button", { name: "Start a new visit" })).toBeVisible();
-  await page.getByRole("button", { name: "Start a new visit" }).click();
+  await page.getByRole("button", { name: "Reset this visit" }).click();
+  await open(page);
   await expect(page.getByRole("button", { name: /Customize item/ })).toBeVisible();
   await viewCart(page);
   await expect(page.getByTestId("cart-conflict")).toHaveCount(0);
@@ -979,7 +1042,8 @@ test("late write responses cannot replace a new visit's cart", async ({ page, co
     await expect(page.getByText(/This page needs a table QR/)).toBeVisible();
     server.endVisit();
     await page.evaluate((value) => { window.location.hash = `table=${value}`; }, token);
-    await page.getByRole("button", { name: "Start a new visit" }).click();
+    await page.getByRole("button", { name: "Reset this visit" }).click();
+    await page.evaluate((value) => { window.location.hash = `table=${value}`; }, token);
     await expect(page.getByRole("button", { name: /Customize item/ })).toBeVisible();
     const response = page.waitForResponse((value) => value.request().method() === "POST" &&
       new URL(value.url()).pathname === "/tables/cart/items");
@@ -1118,7 +1182,7 @@ test("a visit replaced after preflight is not mutated", async ({ page, context }
   const dialog = await customize(page);
   server.replaceOnNextWrite();
   await dialog.getByRole("button", { name: /Add to cart/ }).click();
-  await expect(page.getByRole("button", { name: "Start a new visit" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset this visit" })).toBeVisible();
   expect(server.writes()).toBe(1);
   expect(server.cart().version).toBe(0);
   expect(server.cart().items).toEqual([]);
@@ -1307,6 +1371,56 @@ test("a stale orders drawer never follows a replacement visit", async ({ page, c
   await expect(orders.getByRole("heading", { name: "Order 20261119-001" })).toBeVisible();
   server.replaceVisit();
   await orders.getByRole("button", { name: "Refresh orders" }).click();
-  await expect(page.getByRole("button", { name: "Start a new visit" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset this visit" })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Table orders" })).toHaveCount(0);
+});
+
+test("stream sync falls back to session-scoped polling without reopening the cart", async ({ page, context }) => {
+  const server = await fixture(context);
+  server.enableRealtime(true);
+  await open(page);
+  await expect(page.getByText("Checking for updates periodically")).toBeVisible();
+  const dialog = await customize(page);
+  const note = dialog.getByLabel("Note for this item");
+  await note.fill("Keep my note");
+  const other = await context.newPage();
+  await open(other);
+  await addLatte(other);
+  server.bumpRealtimeCart();
+  await expect.poll(() => server.cursors().some((cursor) => cursor === "1".padStart(64, "0")),
+    { timeout: 14_000 }).toBe(true);
+  await expect(page.getByTestId("cart-dock")).toContainText("₱120.00", { timeout: 12_000 });
+  await expect(dialog).toBeVisible();
+  await expect(note).toHaveValue("Keep my note");
+  await expect(page.locator("dialog[open]")).toHaveCount(1);
+  await other.close();
+});
+
+test("polling does not acknowledge a failed resource refresh and stops when access ends", async ({ page, context }) => {
+  const server = await fixture(context);
+  server.enableRealtime();
+  server.failReads(true);
+  await page.goto(`/order#table=${token}`);
+  await expect.poll(server.failedCartReadsAfterPoll).toBeGreaterThan(0);
+  server.failReads(false);
+  await expect(page.getByText("Checking for updates periodically")).toBeVisible({ timeout: 15_000 });
+  expect(server.cursors().slice(0, 2)).toEqual([null, null]);
+  server.endRealtime();
+  await expect(page.getByRole("button", { name: "Reset this visit" })).toBeVisible({ timeout: 12_000 });
+});
+
+test("a generic stream 403 falls back without ending the visit", async ({ page, context }) => {
+  const server = await fixture(context);
+  server.failRealtimeStream(403);
+  await open(page);
+  await expect(page.getByText("Checking for updates periodically")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset this visit" })).toHaveCount(0);
+});
+
+test("cross-origin polling waits for the stream's Retry-After", async ({ page, context }) => {
+  const server = await fixture(context);
+  server.failRealtimeStream(429);
+  await open(page);
+  await expect(page.getByText("Checking for updates periodically")).toBeVisible({ timeout: 4_500 });
+  expect(server.fallbackDelay()).toBeGreaterThanOrEqual(1_000);
 });

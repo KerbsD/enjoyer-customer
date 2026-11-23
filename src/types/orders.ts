@@ -2,7 +2,7 @@ import type { Ref } from "react";
 import type { z } from "zod";
 import type { orderAttemptSchema, placementSchema, tableOrderSchema, visitOrdersSchema } from "@/schemas/orders";
 import type { Cart } from "@/types/cart";
-import type { ApiError } from "@/api/public";
+import type useTableOrders from "@/modules/Order/useTableOrders";
 
 export type OrderAttempt = z.output<typeof orderAttemptSchema>;
 export type TableOrder = z.output<typeof tableOrderSchema>;
@@ -45,9 +45,8 @@ export type OrderConfirmationProps = {
 };
 
 export type TableOrderProps = {
-  sessionId: string;
   tableName: string;
   storeOpen: boolean;
   canOrder: boolean;
-  endVisit: (error?: ApiError) => void;
+  orders: ReturnType<typeof useTableOrders>;
 }

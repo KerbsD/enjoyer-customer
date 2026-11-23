@@ -14,8 +14,7 @@ const visitEnded = (error: unknown): error is ApiError =>
   (error.code === "TABLE_SESSION_REQUIRED" || error.code === "INVALID_TABLE_QR");
 
 export default function useTableOrders(
-  open: boolean,
-  sessionId: string,
+  sessionId: string | null,
   endVisit: (error?: ApiError) => void,
 ) {
   const [data, setData] = useState<VisitOrders | null>(null);
@@ -38,7 +37,7 @@ export default function useTableOrders(
 
   const refresh = useCallback(async () => {
     const token = tableTokenFromHash(window.location.hash);
-    if (!token || writing.current || !lifetime.current || lifetime.current.signal.aborted) return;
+    if (!sessionId || !token || writing.current || !lifetime.current || lifetime.current.signal.aborted) return;
     lastRead.current?.abort();
     const controller = new AbortController();
     lastRead.current = controller;
@@ -50,6 +49,7 @@ export default function useTableOrders(
       if (!active()) return;
       setData(latest);
       setReadError("");
+      return true;
     } catch (error) {
       if (!active()) return;
       if (visitEnded(error)) {
@@ -63,23 +63,11 @@ export default function useTableOrders(
     }
   }, [sessionId, endVisit]);
 
-  useEffect(() => {
-    if (!open) return;
-    let mounted = true;
-    const onFocus = () => { if (mounted) void refresh(); };
-    queueMicrotask(onFocus);
-    window.addEventListener("focus", onFocus);
-    return () => {
-      mounted = false;
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [open, refresh]);
-
   async function cancel(id: string) {
     const token = tableTokenFromHash(window.location.hash);
     const signal = lifetime.current?.signal;
     const order = data?.orders.find((item) => item.id === id);
-    if (!token || !signal || signal.aborted || writing.current || reading ||
+    if (!sessionId || !token || !signal || signal.aborted || writing.current || reading ||
         readError || !order || !canCancelOrder(order.status)) return;
     const active = () => !signal.aborted && tableTokenFromHash(window.location.hash) === token;
     writing.current = true;

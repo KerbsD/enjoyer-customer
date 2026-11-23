@@ -5,6 +5,7 @@ import { SESSION_KEY } from "@/constants/menu";
 import { messageFor } from "@/lib/public-error";
 import { tableTokenFromHash } from "@/lib/table-token";
 import type { TableState } from "@/types/menu";
+import type { Table } from "@/types/public";
 
 const VISIT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,28 +134,20 @@ export default function useTableVisit(mode: "browse" | "table") {
     setScanVersion((value) => value + 1);
   };
 
-  const startNewVisit = async () => {
-    const hash = window.location.hash;
-    const token = tableTokenFromHash(hash);
-    if (!token) {
-      setTable({ kind: "missing" });
-      return;
-    }
-    setTable({ kind: "loading" });
+  const resetVisit = () => {
+    if (table.kind !== "ended") return;
+    // Remove the old scan from the current history entry before forgetting
+    // the visit. Reloading this page must not open a replacement visit.
+    const url = new URL(window.location.href);
+    url.hash = "";
+    window.history.replaceState(window.history.state, "", url);
     try {
-      const opened = (await openTable(token)).data;
-      if (window.location.hash !== hash) return;
-      saveVisit(opened.table.id, opened.session.id);
-      setTable({
-        kind: "ready",
-        table: opened.table,
-        sessionId: opened.session.id,
-        cartId: opened.cart.id,
-      });
-    } catch (error) {
-      if (window.location.hash === hash)
-        setTable({ kind: "error", message: messageFor(error) });
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      // The QR fragment is still cleared if storage is unavailable.
     }
+    setTable({ kind: "missing" });
+    setScanVersion((value) => value + 1);
   };
 
   const endVisit = useCallback((error?: ApiError) => {
@@ -168,5 +161,13 @@ export default function useTableVisit(mode: "browse" | "table") {
     });
   }, []);
 
-  return { table, retryTable, startNewVisit, endVisit };
+  const updateTable = useCallback((sessionId: string, table: Table) => {
+    setTable((current) =>
+      current.kind === "ready" && current.sessionId === sessionId
+        ? { ...current, table }
+        : current,
+    );
+  }, []);
+
+  return { table, retryTable, resetVisit, endVisit, updateTable };
 }

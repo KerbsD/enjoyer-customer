@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getMenu,
@@ -8,45 +8,45 @@ import type { PublicCategory, StoreStatus } from "@/types/public";
 import { messageFor } from "@/lib/public-error";
 import type { LoadState } from "@/types/menu";
 
-export default function usePublicMenu() {
-  const [menu, setMenu] = useState<LoadState<PublicCategory[]>>({
-    kind: "loading",
-  });
-  const [store, setStore] = useState<LoadState<StoreStatus>>({
-    kind: "loading",
-  });
-  const [reload, setReload] = useState(0);
-
-  useEffect(() => {
+function useResource<T>(load: (signal: AbortSignal) => Promise<{ data: T }>) {
+  const [state, setState] = useState<LoadState<T>>({ kind: "loading" });
+  const active = useRef<AbortController | null>(null);
+  const refresh = useCallback(async () => {
+    if (!active.current) return false;
+    active.current.abort();
     const controller = new AbortController();
-    void getMenu(controller.signal).then(
-      (result) => {
-        if (!controller.signal.aborted)
-          setMenu({ kind: "ready", data: result.data });
-      },
-      (error) => {
-        if (!controller.signal.aborted)
-          setMenu({ kind: "error", message: messageFor(error) });
-      },
-    );
-    void getStoreStatus(controller.signal).then(
-      (result) => {
-        if (!controller.signal.aborted)
-          setStore({ kind: "ready", data: result.data });
-      },
-      (error) => {
-        if (!controller.signal.aborted)
-          setStore({ kind: "error", message: messageFor(error) });
-      },
-    );
-    return () => controller.abort();
-  }, [reload]);
+    active.current = controller;
+    try {
+      const { data } = await load(controller.signal);
+      if (controller.signal.aborted) return false;
+      setState({ kind: "ready", data });
+      return true;
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setState((current) => current.kind === "ready"
+          ? current : { kind: "error", message: messageFor(error) });
+      return false;
+    }
+  }, [load]);
+  useEffect(() => {
+    const scope = new AbortController();
+    active.current = scope;
+    queueMicrotask(() => { if (!scope.signal.aborted) void refresh(); });
+    return () => {
+      scope.abort();
+      active.current?.abort();
+      active.current = null;
+    };
+  }, [refresh]);
+  return [state, refresh] as const;
+}
 
-  const retryPublic = () => {
-    setMenu({ kind: "loading" });
-    setStore({ kind: "loading" });
-    setReload((value) => value + 1);
-  };
-
-  return { menu, store, retryPublic };
+export default function usePublicMenu() {
+  const [menu, refreshMenu] = useResource<PublicCategory[]>(getMenu);
+  const [store, refreshStore] = useResource<StoreStatus>(getStoreStatus);
+  const retryPublic = useCallback(() => {
+    void refreshMenu();
+    void refreshStore();
+  }, [refreshMenu, refreshStore]);
+  return { menu, store, retryPublic, refreshMenu, refreshStore };
 }

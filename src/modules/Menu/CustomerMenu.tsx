@@ -67,12 +67,14 @@ function CustomerMenuContent({
     retryPublic,
     cart,
     checkout,
+    orders,
+    realtimeStatus,
     menu,
     editor,
     canAdd,
     findItem,
     retryTable,
-    startNewVisit,
+    resetVisit,
   } = useCustomerMenu({ mode, visit });
 
   return (
@@ -173,13 +175,21 @@ function CustomerMenuContent({
                     <strong className="block text-2xl tracking-[-0.04em]">
                       {table.table.name}
                     </strong>
+                    <p role="status" className="mt-1 text-xs text-[#d0c9bb]">
+                      {realtimeStatus === "live"
+                        ? "Live updates"
+                        : realtimeStatus === "polling"
+                          ? "Checking for updates periodically"
+                          : realtimeStatus === "connecting"
+                            ? "Connecting to updates…"
+                            : "Reconnecting · Refresh manually if needed"}
+                    </p>
                   </div>
                   <TableOrders
-                    sessionId={table.sessionId}
                     tableName={table.table.name}
                     storeOpen={store.kind === "ready" && store.data.isOpen}
                     canOrder={canAdd && menu.kind === "ready"}
-                    endVisit={visit.endVisit}
+                    orders={orders}
                   />
                 </>
               )}
@@ -205,15 +215,15 @@ function CustomerMenuContent({
               {table.kind === "ended" && (
                 <div className="flex w-full items-center justify-between gap-5 max-[420px]:flex-col max-[420px]:items-start">
                   <p>
-                    The previous visit at {table.table.name} has ended. If
-                    you&apos;re at this table now, you can start a new visit.
+                    The previous visit at {table.table.name} has ended. Reset this
+                    page, then scan the QR code at your table again to order.
                   </p>
                   <button
                     className="shrink-0 rounded-md bg-accent px-3.25 py-2.25 font-extrabold text-ink"
                     type="button"
-                    onClick={() => void startNewVisit()}
+                    onClick={resetVisit}
                   >
-                    Start a new visit
+                    Reset this visit
                   </button>
                 </div>
               )}
@@ -345,14 +355,12 @@ function CustomerMenuContent({
             role="note"
           >
             <strong>
-              {mode === "table"
-                 ? "Order from your table"
-                : "Just browsing?"}
+              {mode === "table" ? "Order from your table" : "Just browsing?"}
             </strong>
             <span className="text-secondary">
               {mode === "table"
-                 ? "Review and place your order from the shared cart. Pay at the counter when your order is served."
-                 : "Scan the QR code at your table to build a shared cart and place an order."}
+                ? "Review and place your order from the shared cart. Pay at the counter when your order is served."
+                : "Scan the QR code at your table to build a shared cart and place an order."}
             </span>
           </div>
         </div>

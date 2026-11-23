@@ -20,7 +20,7 @@ The customer project began as the default Next.js starter; Phase 1 adds the publ
 
 - Set up the customer design tokens, fonts, page metadata, responsive shell, loading/error/empty states, API base URL, typed public request/error handling, PHP and `Asia/Manila` formatting, and initial typecheck/lint/test scripts.
 - Implement the actual QR destination `/order#table=TOKEN`. Read the fragment on the client, keep the QR token out of query strings/server requests/logs, and send it only in JSON to `POST /tables/resolve`, `POST /tables/open` and `POST /tables/resume`, or later in the `X-Table-Token` header. Persist only as needed for same-tab refresh; a new scan must replace the previous table context. Never expose the token in rendered UI.
-- Show the validated table name and clear invalid/deactivated/missing-QR or API-offline states. `/tables/open` creates or reuses a provisional session and returns the session ID and cart. `/tables/resume` refreshes the exact remembered visit atomically and never creates or joins another one; if it returns `TABLE_SESSION_REQUIRED`, ask before starting a replacement visit. Do not silently open a replacement visit after an existing session ends.
+- Show the validated table name and clear invalid/deactivated/missing-QR or API-offline states. `/tables/open` creates or reuses a provisional session and returns the session ID and cart. `/tables/resume` refreshes the exact remembered visit atomically and never creates or joins another one. After a visit ends, **Reset this visit** clears the current QR fragment and visit marker without opening a new session. Ask the customer to scan the table QR again.
 - Read `GET /menu` and `GET /store/status`: categories in API order, item descriptions/prices/spicy markers, visible sold-out items disabled, a reachable category navigator, and a clear closed-hours banner. Menu remains browsable when closed; ordering controls are not live yet. If a no-QR browsing entry is offered, it must never imply that a table is selected.
 
 **Done when:** a real QR lands on the correct table/menu on a phone; bad/deactivated codes show an actionable error; browsing and closed/sold-out states work without login; tests cover fragment parsing and public API errors. Before printing QR codes, configure the API's `CUSTOMER_URL` to the deployed customer origin—otherwise codes may point at the admin `CLIENT_URL`.
@@ -87,6 +87,16 @@ table before sign-off. Live push updates are Phase 5.
 - On `TABLE_SESSION_REQUIRED`, `INVALID_TABLE_QR`, or closed-session access, stop updates and show a scan/ask-staff flow; do not automatically follow the same QR into a newly opened visit. Show a modest connection status and recover from SSE to polling and back.
 
 **Done when:** simultaneous phones receive cart/order/status/menu/store changes, polling works if SSE is unavailable, reconnections resync, and old sessions stay isolated.
+
+**Automated verification:** The customer repo vendors the API browser helper
+in `src/api/realtime.ts` so it can build independently. Tests cover full stream
+sync, polling fallback, deferred revision acknowledgement after a failed read,
+editor preservation, and stopping when visit access ends. Live verification
+against the running API on two phones is still pending.
+
+Reconnect recovery keeps an incomplete refresh pending across transports.
+Customer read routes have a separate shared-IP budget from checkout and staff
+traffic, and cross-origin browsers can honor the API’s `Retry-After` header.
 
 ## Phase 6 — In-shop ordering and order names
 
