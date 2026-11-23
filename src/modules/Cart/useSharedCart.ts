@@ -124,11 +124,19 @@ export default function useSharedCart(
     const current = cartRef.current;
     const scope = lifetime.current;
     if (
-      !sessionId || !token || !current || !scope || scope.signal.aborted ||
-      current.id !== cartId || busyRef.current || needsReview
+      !sessionId ||
+      !token ||
+      !current ||
+      !scope ||
+      scope.signal.aborted ||
+      current.id !== cartId ||
+      busyRef.current ||
+      needsReview
     )
       return "error";
-    const active = () => !scope.signal.aborted &&
+
+    const active = () =>
+      !scope.signal.aborted &&
       tableTokenFromHash(window.location.hash) === token;
     if (current.version !== expectedVersion) {
       setNeedsReview(true);
@@ -154,7 +162,12 @@ export default function useSharedCart(
         return "error";
       }
       if (latest.version !== current.version) {
-        throw new ApiError("Review the latest cart.", 409, "CART_VERSION_CONFLICT", latest);
+        throw new ApiError(
+          "Review the latest cart.",
+          409,
+          "CART_VERSION_CONFLICT",
+          latest,
+        );
       }
       writeStarted = true;
       const result = await operation(token, current);
@@ -170,9 +183,10 @@ export default function useSharedCart(
       return "success";
     } catch (error) {
       if (!active()) return "error";
-      const conflict = error instanceof ApiError &&
-        error.code === "CART_VERSION_CONFLICT"
-        ? cartSchema.safeParse(error.data) : null;
+      const conflict =
+        error instanceof ApiError && error.code === "CART_VERSION_CONFLICT"
+          ? cartSchema.safeParse(error.data)
+          : null;
       if (conflict?.success) {
         if (conflict.data.id !== cartId) {
           endVisit();
@@ -202,7 +216,9 @@ export default function useSharedCart(
         setState({ kind: "idle" });
       } else {
         if (!writeStarted) {
-          setNotice(`Nothing was sent. Couldn't check the latest cart. ${messageFor(error)}`);
+          setNotice(
+            `Nothing was sent. Couldn't check the latest cart. ${messageFor(error)}`,
+          );
           return "error";
         }
         setNotice(messageFor(error));
@@ -223,7 +239,10 @@ export default function useSharedCart(
         }
         // The network may have failed after a successful write. Read back instead
         // of retrying a possibly completed mutation.
-        if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 0 || error.status >= 500)
+        ) {
           setNeedsReview(true);
           setCanReview(false);
           setNotice(
@@ -253,6 +272,18 @@ export default function useSharedCart(
     needsReview,
     canReview,
     revealId,
+    applyPlacementCart: (result: Cart) => {
+      if (
+        !sessionId ||
+        result.id !== cartId ||
+        (cartRef.current && result.version < cartRef.current.version)
+      )
+        return;
+      requestId.current++;
+      cartRef.current = result;
+      setState({ kind: "ready", data: result, sessionId });
+      setRefreshError("");
+    },
     refreshCart: () => void refreshCart(),
     acknowledgeReview: () => {
       if (!canReview || busyRef.current) return;
@@ -266,7 +297,12 @@ export default function useSharedCart(
     ) =>
       mutate(
         (token, cart) =>
-          addCartLine(token, { menuItemId, ...form, cartId: cart.id, version: cart.version }),
+          addCartLine(token, {
+            menuItemId,
+            ...form,
+            cartId: cart.id,
+            version: cart.version,
+          }),
         expectedVersion,
       ),
     updateItem: (
@@ -276,17 +312,23 @@ export default function useSharedCart(
     ) =>
       mutate(
         (token, cart) =>
-          updateCartLine(token, id, { ...form, cartId: cart.id, version: cart.version }),
+          updateCartLine(token, id, {
+            ...form,
+            cartId: cart.id,
+            version: cart.version,
+          }),
         expectedVersion,
       ),
     removeItem: (id: number, expectedVersion: number) =>
       mutate(
-        (token, cart) => removeCartLine(token, id, { cartId: cart.id, version: cart.version }),
+        (token, cart) =>
+          removeCartLine(token, id, { cartId: cart.id, version: cart.version }),
         expectedVersion,
       ),
     clearItems: (expectedVersion: number) =>
       mutate(
-        (token, cart) => clearCart(token, { cartId: cart.id, version: cart.version }),
+        (token, cart) =>
+          clearCart(token, { cartId: cart.id, version: cart.version }),
         expectedVersion,
       ),
   };

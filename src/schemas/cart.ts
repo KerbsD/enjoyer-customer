@@ -8,6 +8,7 @@ const id = z.number().int().positive();
 export const cartSchema = z.object({
   id: z.string().min(1),
   version: z.number().int().nonnegative(),
+  reviewFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   updatedAt: z.iso.datetime(),
   items: z.array(z.object({
     id,

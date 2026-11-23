@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -127,6 +128,13 @@ async function fixture(context: BrowserContext, closed = false) {
   let replaceOnResume = false;
   let openCalls = 0;
   let resumeCalls = 0;
+  let orderPosts = 0;
+  let resolutionPosts = 0;
+  let loseOrderResponse = false;
+  let loseOrderBeforeCommit = false;
+  let failOrderReads = false;
+  let orderFailure: { code: string; message: string } | null = null;
+  const placedOrders: { id: string; tableSessionId: string; orderNumber: string; status: string; total: string }[] = [];
   const replaceVisit = () => {
     currentSessionId = "22222222-2222-4222-8222-222222222222";
     cartId = "44444444-4444-4444-8444-444444444444";
@@ -138,6 +146,7 @@ async function fixture(context: BrowserContext, closed = false) {
     return {
       id: cartId,
       version,
+      reviewFingerprint: createHash("sha256").update(JSON.stringify(lines)).digest("hex"),
       updatedAt: new Date().toISOString(),
       items: lines,
       totals: {
@@ -239,6 +248,63 @@ async function fixture(context: BrowserContext, closed = false) {
           cart: cart(),
         }),
       );
+      return;
+    }
+    if (url.pathname === "/tables/orders") {
+      expect(request.headers()["x-table-token"]).toBe(token);
+      const summary = () => ({ ordersRemaining: 5 - placedOrders.length });
+      if (request.method() === "GET") {
+        if (failOrderReads) await send({ success: false }, 503);
+        else await send(envelope({
+          session: { id: currentSessionId }, orders: placedOrders, summary: summary(),
+        }));
+        return;
+      }
+      const body = request.postDataJSON() as {
+        cartId: string; requestId: string; version: number; total: string;
+        reviewFingerprint: string; resolveOnly?: true;
+      };
+      if (body.resolveOnly) resolutionPosts++;
+      else orderPosts++;
+      const existing = placedOrders.find((order) => order.id === body.requestId);
+      if (existing) {
+        await send(envelope({ order: existing, cart: cart(), summary: summary() }));
+        return;
+      }
+      expect(body.cartId).toBe(cartId);
+      expect(body.requestId).toMatch(/^[\da-f-]{36}$/);
+      if (body.resolveOnly) {
+        if (body.version === version) version++;
+        await send({ success: false, code: "ORDER_ATTEMPT_CLOSED" }, 409);
+        return;
+      }
+      if (loseOrderBeforeCommit) {
+        loseOrderBeforeCommit = false;
+        await route.abort("failed");
+        return;
+      }
+      if (orderFailure) {
+        await send({ success: false, ...orderFailure }, 409);
+        return;
+      }
+      if (body.version !== version || body.total !== cart().totals.total ||
+          body.reviewFingerprint !== cart().reviewFingerprint) {
+        await send({ success: false, code: "CART_VERSION_CONFLICT", data: cart() }, 409);
+        return;
+      }
+      const order = {
+        id: body.requestId, tableSessionId: currentSessionId, orderNumber: "20261119-001",
+        status: "pending_confirmation", total: body.total,
+      };
+      placedOrders.push(order);
+      lines = [];
+      version++;
+      if (loseOrderResponse) {
+        loseOrderResponse = false;
+        await route.abort("failed");
+        return;
+      }
+      await send(envelope({ order, cart: cart(), summary: summary() }), 201);
       return;
     }
     if (url.pathname === "/tables/cart" && request.method() === "GET") {
@@ -408,6 +474,14 @@ async function fixture(context: BrowserContext, closed = false) {
     replaceOnNextResume: () => { replaceOnResume = true; },
     opens: () => openCalls,
     resumes: () => resumeCalls,
+    orderPosts: () => orderPosts,
+    resolutionPosts: () => resolutionPosts,
+    renameFirstLine: () => { lines[0].menuItem.name = "Renamed Latte"; },
+    orders: () => placedOrders.length,
+    loseNextOrderResponse: () => { loseOrderResponse = true; },
+    loseNextOrderBeforeCommit: () => { loseOrderBeforeCommit = true; },
+    failOrderReads: (fail: boolean) => { failOrderReads = fail; },
+    failPlacement: (code: string, message: string) => { orderFailure = { code, message }; },
     hideFirstLine: () => { lines[0].menuItem.isHidden = true; },
     endVisit: () => {
       sessionEnded = true;
@@ -994,4 +1068,124 @@ test("a visit replaced after preflight is not mutated", async ({ page, context }
   expect(server.writes()).toBe(1);
   expect(server.cart().version).toBe(0);
   expect(server.cart().items).toEqual([]);
+});
+
+async function reviewOrder(page: Page) {
+  await page.getByRole("button", { name: "Review order", exact: true }).click();
+  const review = page.getByRole("region", { name: "Review your order" });
+  await expect(review.getByRole("heading")).toBeFocused();
+  return review;
+}
+
+test("checkout reviews the table, customizations and payment before showing confirmation", async ({ page, context }) => {
+  const server = await fixture(context);
+  await page.setViewportSize({ width: 320, height: 700 });
+  await open(page);
+  const item = await customize(page);
+  await item.getByLabel("Oat milk").check();
+  await item.getByLabel("Note for this item").fill("less ice");
+  await item.getByRole("button", { name: /Add to cart/ }).click();
+  const review = await reviewOrder(page);
+  for (const text of ["Test Table", "Oat milk", "less ice", "₱150.00", "No payment is taken here."])
+    await expect(review).toContainText(text);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await review.getByRole("button", { name: "Place order" }).click();
+  const receipt = page.getByRole("region", { name: "Order 20261119-001" });
+  await expect(receipt.getByRole("heading")).toBeFocused();
+  await expect(receipt).toContainText("Waiting for staff confirmation");
+  await expect(receipt).toContainText("4 orders remaining");
+  await expect(page.getByTestId("cart-dock")).toContainText("₱0.00");
+  expect(server.orderPosts()).toBe(1);
+});
+
+test("checkout does not submit a cart changed after review", async ({ page, context }) => {
+  const server = await fixture(context);
+  await open(page);
+  await addLatte(page);
+  const review = await reviewOrder(page);
+  const other = await context.newPage();
+  await open(other, "₱120.00");
+  await addLatte(other);
+  await review.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByText(/cart or its prices changed/)).toBeVisible();
+  await expect(page.getByTestId("cart-dock")).toContainText("₱240.00");
+  expect(server.orderPosts()).toBe(0);
+  await other.close();
+});
+
+test("a lost placement response is recovered by exact order ID after reload", async ({ page, context }) => {
+  const server = await fixture(context);
+  await open(page);
+  await addLatte(page);
+  server.loseNextOrderResponse();
+  server.failOrderReads(true);
+  const review = await reviewOrder(page);
+  await review.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByText(/couldn't verify whether the order was placed/)).toBeVisible();
+  await page.reload();
+  await viewCart(page);
+  server.failOrderReads(false);
+  await page.getByRole("button", { name: "Check order status" }).click();
+  await expect(page.getByRole("heading", { name: "Order 20261119-001" })).toBeVisible();
+  expect(server.orderPosts()).toBe(1);
+  expect(server.orders()).toBe(1);
+});
+
+test("an uncommitted placement can retry the same order after checking", async ({ page, context }) => {
+  const server = await fixture(context);
+  await open(page);
+  await addLatte(page);
+  server.loseNextOrderBeforeCommit();
+  const review = await reviewOrder(page);
+  await review.getByRole("button", { name: "Place order" }).click();
+  expect(server.orders()).toBe(0);
+  await page.getByRole("button", { name: "Retry same order" }).click();
+  await expect(page.getByRole("heading", { name: "Order 20261119-001" })).toBeVisible();
+  expect(server.orderPosts()).toBe(2);
+  expect(server.orders()).toBe(1);
+});
+
+test("authoritative checkout rejection retains the shared cart", async ({ page, context }) => {
+  const server = await fixture(context);
+  await open(page);
+  await addLatte(page);
+  server.failPlacement("ORDER_AWAITING_CONFIRMATION", "Please wait for staff to confirm your first order.");
+  const review = await reviewOrder(page);
+  await review.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByText("Please wait for staff to confirm your first order.")).toBeVisible();
+  await expect(page.getByTestId("cart-total")).toContainText("₱120.00");
+  expect(server.orders()).toBe(0);
+});
+
+test("recovery resolves an unsent order when cart details change without a version bump", async ({ page, context }) => {
+  const server = await fixture(context);
+  await open(page);
+  await addLatte(page);
+  server.loseNextOrderBeforeCommit();
+  const review = await reviewOrder(page);
+  await review.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByRole("button", { name: "Retry same order" })).toBeVisible();
+  server.renameFirstLine();
+  await page.getByRole("button", { name: "Check order status" }).click();
+  await expect(page.getByText(/wasn't placed.*cart or its prices changed/)).toBeVisible();
+  await expect(page.getByTestId("cart-line")).toContainText("Renamed Latte");
+  await expect(page.getByRole("button", { name: "Review order" })).toBeEnabled();
+  expect(server.resolutionPosts()).toBe(1);
+  expect(server.orders()).toBe(0);
+});
+
+test("a definite retry rejection shows the reason and unlocks the cart", async ({ page, context }) => {
+  const server = await fixture(context);
+  await open(page);
+  await addLatte(page);
+  server.loseNextOrderBeforeCommit();
+  const review = await reviewOrder(page);
+  await review.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByRole("button", { name: "Retry same order" })).toBeVisible();
+  server.failPlacement("OPTION_UNAVAILABLE", "Oat milk is sold out.");
+  await page.getByRole("button", { name: "Retry same order" }).click();
+  await expect(page.getByText("This order wasn't placed. Oat milk is sold out.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review order" })).toBeEnabled();
+  expect(server.resolutionPosts()).toBe(1);
+  expect(server.orders()).toBe(0);
 });

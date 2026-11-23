@@ -1,4 +1,5 @@
-import type { PublicItem } from "@/types/public";
+import type { PublicItem, Table } from "@/types/public";
+import type { CheckoutActions } from "@/types/orders";
 import type { z } from "zod";
 import type { cartSchema } from "@/schemas/cart";
 
@@ -17,6 +18,8 @@ export type CartState =
 export type CartActionResult = "success" | "conflict" | "unavailable" | "error";
 
 export type SharedCartProps = {
+  table: Table;
+  checkout: CheckoutActions;
   state: CartState;
   busy: boolean;
   notice: string;

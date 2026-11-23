@@ -1,6 +1,6 @@
 # Enjoyer customer frontend: phased roadmap
 
-This plan follows `../specs.md` for product behavior, `../api/README.md` and the API implementation for the current contract, and `../admin` for frontend organization. Complete and verify **one phase at a time** before beginning the next. Phases 1–2 are implemented; real-API cart writes and physical-device checks are still pending. No customer order placement exists yet.
+This plan follows `../specs.md` for product behavior, `../api/README.md` and the API implementation for the current contract, and `../admin` for frontend organization. Complete and verify **one phase at a time** before beginning the next. Phases 1–3 are implemented; real-API cart/checkout and physical-device sign-off are still pending.
 
 ## What to carry over from the admin frontend
 
@@ -57,7 +57,7 @@ physical-device/screen-reader checks remain pending.
 
 **Goal:** turn the shared cart into an order safely and show an unambiguous result.
 
-- Review table, lines, add-ons, notes, total, and **pay when served at the counter** messaging. Submit `POST /tables/orders` with the reviewed cart version. Prevent accidental double submission and reconcile uncertain network results by refetching orders/cart before offering a retry.
+- Review table, lines, add-ons, notes, total, and **pay when served at the counter** messaging. Submit `POST /tables/orders` with the reviewed cart ID, version, total and unique request ID. Prevent accidental double submission and reconcile uncertain network results by refetching cart and checking for that exact order ID before offering a retry with the same request ID.
 - Handle authoritative placement errors: `CART_VERSION_CONFLICT`, `CART_EMPTY`, `MENU_ITEM_UNAVAILABLE`, option validation, `STORE_CLOSED`, `ORDER_AWAITING_CONFIRMATION`, `ORDER_LIMIT_REACHED`, and ended/invalid table session. Refresh the relevant resources and show what the customer can do next.
 - Show order number, current status, and remaining orders from the response. The first order is `pending_confirmation`; later orders in a confirmed open session are `received`. A second order cannot be placed while the first awaits confirmation. Rejected/expired/cancelled orders do not use the session limit.
 
@@ -83,7 +83,19 @@ physical-device/screen-reader checks remain pending.
 
 **Done when:** simultaneous phones receive cart/order/status/menu/store changes, polling works if SSE is unavailable, reconnections resync, and old sessions stay isolated.
 
-## Phase 6 — Quality and release sign-off
+## Phase 6 — In-shop ordering and order names
+
+**Goal:** keep QR menu browsing public while preventing a photo of a table QR from being enough to order remotely. No staff-issued code or per-order approval is added by this phase; the existing first-order confirmation flow stays in place.
+
+- Add an owner-controlled **Ordering network** setting. The owner enrolls a designated café terminal once. While an authorized admin uses that terminal, the API can automatically refresh the saved public IP when it changes. Ordinary admin logins, including from home or mobile data, must not change it. Show the active address and last change in admin, audit updates, and provide an owner-only manual override and terminal revocation.
+- Enforce the network rule in the API, not just the UI. Keep the menu and hours public; require the configured café network before opening or joining an ordering visit, changing the cart, or placing an order. If the network cannot be verified, keep browsing available and tell the customer to connect to guest Wi-Fi. Store hours remain a separate placement check.
+- Require a first name or nickname on **each order**, validate and store it server-side, and show it on the staff board for handoff. It is a label, not a password or proof of presence.
+- Confirm whether to keep the shared cart on the café network or switch to one ordering phone per visit. If switching, only a phone that passes the network check may claim the visit; define how guests recover access if that phone becomes unavailable without losing the cart.
+- Before relying on public-IP matching, verify what the deployed API sees from the café terminal, two phones on guest Wi-Fi, and a phone on mobile data. Check IPv4/IPv6, whether the ISP shares the public address with other subscribers, and whether the guest and admin networks use the same internet connection. If the address cannot reliably distinguish on-site traffic, revisit the network check before rollout. Keep guest and admin Wi-Fi separate.
+
+**Done when:** the QR menu opens off-site but ordering is blocked; guests on café Wi-Fi can order during store hours with a name; an IP change can be recovered without a remote admin login changing the approved network. Complete this phase before distributing live ordering QR codes.
+
+## Phase 7 — Quality and release sign-off
 
 **Goal:** make the full mobile journey dependable before table QR distribution.
 

@@ -65,6 +65,7 @@ function CustomerMenuContent({
     store,
     retryPublic,
     cart,
+    checkout,
     menu,
     editor,
     canAdd,
@@ -318,6 +319,8 @@ function CustomerMenuContent({
           )}
           {table.kind === "ready" && (
             <SharedCart
+              table={table.table}
+              checkout={checkout}
               state={cart.state}
               busy={cart.busy}
               notice={cart.notice}
@@ -344,13 +347,13 @@ function CustomerMenuContent({
           >
             <strong>
               {mode === "table"
-                ? "Your cart is ready. Checkout is coming next."
+                 ? "Order from your table"
                 : "Just browsing?"}
             </strong>
             <span className="text-secondary">
               {mode === "table"
-                ? "You can customize items and build a shared cart, but cannot send an order to the kitchen yet. Please let our staff know what you'd like."
-                : "Scan the QR code at your table to build a shared cart. Phone ordering is coming soon; please tell our staff what you'd like."}
+                 ? "Review and place your order from the shared cart. Pay at the counter when your order is served."
+                 : "Scan the QR code at your table to build a shared cart and place an order."}
             </span>
           </div>
         </div>

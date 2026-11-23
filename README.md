@@ -1,6 +1,6 @@
 # Enjoyer customer menu
 
-Phases 1–2 of the [customer roadmap](CUSTOMER_ROADMAP.md): mobile-first public menu, store status, table QR entry at `/order#table=TOKEN`, item customization, and a versioned shared cart. Customers **cannot place orders yet**; checkout and order tracking are later phases. Ask staff to take your order.
+Phases 1–3 of the [customer roadmap](CUSTOMER_ROADMAP.md): mobile-first public menu, store status, table QR entry at `/order#table=TOKEN`, item customization, a versioned shared cart, and order placement. Order tracking and cancellation are later phases.
 
 ## Local setup
 
@@ -30,7 +30,17 @@ nothing is sent and the editor stays open. If the write itself fails with an
 uncertain outcome, a successful cart read and explicit review are required before
 retrying. Requests time out after 15 seconds, including response-body reads.
 
-Deploy this frontend with the matching API change that requires `cartId` on
-cart writes. Older frontend and API versions are not write-compatible with it.
+From the cart, tap **Review order**, verify the table, items and total, then tap
+**Place order**. The first order waits for staff confirmation. Pay at the counter
+when the order is served; the app does not take payment. If the confirmation
+response is lost, check the attempted order before trying again.
+
+Deploy this frontend with the matching API version that supports `/tables/resume`,
+requires `cartId` on cart writes, and supports the reviewed checkout request.
+
+For local phone testing, set `NEXT_PUBLIC_API_URL` to the PC's LAN API URL
+in `.env.local` and, if Next.js blocks dev assets, set `NEXT_DEV_ORIGIN_HOST`
+to the PC's LAN IP without a scheme or port. Restart with
+`npm run dev -- --hostname 0.0.0.0` and allow the LAN customer origin in API CORS.
 
 Checks: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run test:e2e`, `npm audit --audit-level=high`. The browser suite uses mocked API responses and requires Chromium (`npx playwright install chromium` once). It builds and starts its own server on port 3103 with `NEXT_PUBLIC_API_URL=http://localhost:4000`, overriding local environment files; all test API calls are intercepted. Keep port 3103 free. A live cart **read** was verified; use only a disposable table for write sign-off, since adding, editing, or clearing its cart affects everyone at that table.

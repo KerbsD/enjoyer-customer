@@ -3,6 +3,7 @@ import useItemEditor from "./useItemEditor";
 import usePublicMenu from "./usePublicMenu";
 import useTableVisit from "./useTableVisit";
 import useSharedCart from "@/modules/Cart/useSharedCart";
+import useCheckout from "@/modules/Order/useCheckout";
 
 export function useCustomerMenu({
   mode,
@@ -17,6 +18,9 @@ export function useCustomerMenu({
   const sessionId = table.kind === "ready" ? table.sessionId : null;
   const cartId = table.kind === "ready" ? table.cartId : null;
   const cart = useSharedCart(sessionId, cartId, endVisit, retryPublic);
+  const checkout = useCheckout(
+    sessionId, cartId, endVisit, cart.refreshCart, cart.applyPlacementCart, retryPublic,
+  );
   const editor = useItemEditor();
   const canAdd =
     mode === "table" &&
@@ -25,7 +29,7 @@ export function useCustomerMenu({
     store.data.isOpen &&
     cart.state.kind === "ready" &&
     !cart.needsReview &&
-    !cart.busy;
+    !cart.busy && !checkout.busy && !checkout.attempt;
   const findItem = (id: number) =>
     menu.kind === "ready"
       ? menu.data
@@ -39,6 +43,7 @@ export function useCustomerMenu({
     store,
     retryPublic,
     cart,
+    checkout,
     menu,
     editor,
     canAdd,

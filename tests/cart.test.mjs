@@ -105,7 +105,7 @@ test("cart mutation endpoints keep token in header and send the observed version
       JSON.stringify({
         success: true,
         data: {
-          id: "cart", version: 4, updatedAt: new Date().toISOString(), items: [],
+          id: "cart", version: 4, reviewFingerprint: "a".repeat(64), updatedAt: new Date().toISOString(), items: [],
           totals: { itemCount: 0, subtotal: "0.00", total: "0.00" },
         },
       }),
@@ -151,7 +151,7 @@ test("cart mutation endpoints keep token in header and send the observed version
 
 test("cart validation rejects malformed nested lines and totals", () => {
   const cart = {
-    id: "cart", version: 0, updatedAt: new Date().toISOString(), items: [],
+    id: "cart", version: 0, reviewFingerprint: "a".repeat(64), updatedAt: new Date().toISOString(), items: [],
     totals: { itemCount: 0, subtotal: "0.00", total: "0.00" },
   };
   assert.equal(cartSchema.safeParse(cart).success, true);

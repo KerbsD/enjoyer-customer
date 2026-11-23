@@ -1,19 +1,23 @@
 "use client";
 
 import { Eye, Pencil, RefreshCw, ShoppingCart, Trash2, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import Drawer from "@/components/Drawer";
 import { peso } from "@/lib/shop-format";
-import type { SharedCartProps } from "@/types/cart";
+import type { Cart, SharedCartProps } from "@/types/cart";
 
 import { actionButton } from "@/components/button-styles";
+import { OrderConfirmation, OrderReview } from "@/modules/Order/OrderReview";
+import { sameReviewedCart } from "@/modules/Order/useCheckout";
 
 import { useAnimateSharedCart } from "./useAnimateSharedCart";
 
 export default function SharedCart({
+  table,
+  checkout,
   state,
-  busy,
+  busy: cartBusy,
   notice,
   needsReview,
   canReview,
@@ -28,11 +32,29 @@ export default function SharedCart({
   onRefresh,
   onReview,
 }: SharedCartProps) {
-  const { open, setOpen, cart } =
-    useAnimateSharedCart({ state, needsReview, revealId, customizing });
+  const { open, setOpen, cart } = useAnimateSharedCart({
+    state,
+    needsReview,
+    revealId,
+    customizing,
+  });
   const [clearVersion, setClearVersion] = useState<number | null>(null);
+  const [review, setReview] = useState<Cart | null>(null);
+  const busy = cartBusy || checkout.busy;
+  const editingBlocked = busy || !!checkout.attempt;
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const confirmationHeading = useRef<HTMLHeadingElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const receipt = checkout.receipt;
+  useEffect(() => {
+    if (open && review) reviewHeading.current?.focus();
+  }, [open, review]);
+  useEffect(() => {
+    if (open && receipt) confirmationHeading.current?.focus();
+  }, [open, receipt]);
   const closeDrawer = () => {
     setClearVersion(null);
+    setReview(null);
     setOpen(false);
   };
   const pendingEdit = useRef<(() => void) | null>(null);
@@ -68,6 +90,7 @@ export default function SharedCart({
               type="button"
               className="shrink-0 rounded-md border border-line p-2 hover:bg-accent"
               aria-label="Close cart"
+              ref={closeButton}
               onClick={closeDrawer}
             >
               <X aria-hidden="true" size={20} />
@@ -87,6 +110,55 @@ export default function SharedCart({
             Everyone at this table sees the same cart. Refresh to pick up
             changes from another phone.
           </p>
+          {receipt && (
+            <OrderConfirmation
+              receipt={receipt}
+              heading={confirmationHeading}
+              onDismiss={() => {
+                checkout.dismiss();
+                closeButton.current?.focus();
+              }}
+            />
+          )}
+          {checkout.busy && (
+            <p role="status" className="mb-4 text-sm font-bold">
+              Checking your order…
+            </p>
+          )}
+          {(checkout.notice || checkout.attempt) && (
+            <div className="mb-4 grid gap-2 rounded-lg border border-line bg-muted p-4 text-sm">
+              <p role="status">
+                {checkout.notice ||
+                  "An order submission is awaiting verification."}
+              </p>
+              {checkout.attempt && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={actionButton}
+                    disabled={busy}
+                    onClick={checkout.check}
+                  >
+                    Check order status
+                  </button>
+                  {checkout.canRetry &&
+                    canEdit &&
+                    cart?.version === checkout.attempt.version &&
+                    cart.reviewFingerprint === checkout.attempt.reviewFingerprint &&
+                    cart.totals.total === checkout.attempt.total && (
+                      <button
+                        type="button"
+                        className={actionButton}
+                        disabled={busy}
+                        onClick={checkout.retry}
+                      >
+                        Retry same order
+                      </button>
+                    )}
+                </div>
+              )}
+            </div>
+          )}
           {notice && (
             <div
               data-testid={needsReview ? "cart-conflict" : "cart-warning"}
@@ -132,8 +204,8 @@ export default function SharedCart({
               <div>
                 {!menuReady && (
                   <p className="py-4 text-sm text-secondary" role="status">
-                    Menu details are unavailable. Your saved cart is shown below;
-                    editing will be available when the menu loads.
+                    Menu details are unavailable. Your saved cart is shown
+                    below; editing will be available when the menu loads.
                   </p>
                 )}
                 {cart.items.map((line) => {
@@ -141,7 +213,7 @@ export default function SharedCart({
                   const canUpdate =
                     canEdit &&
                     !needsReview &&
-                    !busy &&
+                    !editingBlocked &&
                     !!item &&
                     item.isAvailable &&
                     line.menuItem.isAvailable &&
@@ -174,15 +246,18 @@ export default function SharedCart({
                           )}
                           {(!line.menuItem.isAvailable ||
                             line.menuItem.isHidden ||
-                             (menuReady && (!item || !item.isAvailable))) && (
+                            (menuReady && (!item || !item.isAvailable))) && (
                             <p className="mt-1 text-[13px] leading-normal font-bold text-[#8d3a22] wrap-anywhere">
                               No longer available. Remove this item to update
                               your cart.
                             </p>
                           )}
-                          {line.options.some((option) => !option.isAvailable) && (
+                          {line.options.some(
+                            (option) => !option.isAvailable,
+                          ) && (
                             <p className="mt-1 text-[13px] font-bold text-[#8d3a22]">
-                              An add-on is sold out. Edit this item to choose an available option.
+                              An add-on is sold out. Edit this item to choose an
+                              available option.
                             </p>
                           )}
                         </div>
@@ -207,7 +282,7 @@ export default function SharedCart({
                         <button
                           type="button"
                           className={actionButton}
-                          disabled={busy || needsReview}
+                          disabled={editingBlocked || needsReview}
                           onClick={() => void onRemove(line.id, cart.version)}
                         >
                           <Trash2 aria-hidden="true" size={15} /> Remove
@@ -216,7 +291,10 @@ export default function SharedCart({
                     </article>
                   );
                 })}
-                <div data-testid="cart-total" className="flex items-baseline justify-between gap-3 border-t-2 border-ink py-4.25 font-bold">
+                <div
+                  data-testid="cart-total"
+                  className="flex items-baseline justify-between gap-3 border-t-2 border-ink py-4.25 font-bold"
+                >
                   <span>Total · {cart.totals.itemCount} items</span>
                   <strong className="font-mono text-[21px]">
                     {peso(cart.totals.total)}
@@ -236,7 +314,11 @@ export default function SharedCart({
                     <button
                       type="button"
                       className={actionButton}
-                      disabled={busy || needsReview || clearVersion !== cart.version}
+                      disabled={
+                        editingBlocked ||
+                        needsReview ||
+                        clearVersion !== cart.version
+                      }
                       onClick={async () => {
                         setClearVersion(null);
                         await onClear(clearVersion);
@@ -256,7 +338,7 @@ export default function SharedCart({
                   <button
                     type="button"
                     className={`${actionButton} ml-auto flex`}
-                    disabled={busy || needsReview}
+                    disabled={editingBlocked || needsReview}
                     onClick={() => setClearVersion(cart.version)}
                   >
                     Clear cart
@@ -264,10 +346,45 @@ export default function SharedCart({
                 )}
               </div>
             ))}
+          {review ? (
+            <OrderReview
+              cart={review}
+              tableName={table.name}
+              heading={reviewHeading}
+              changed={!cart || !sameReviewedCart(cart, review)}
+              disabled={editingBlocked || needsReview || !canEdit}
+              onBack={() => {
+                setReview(null);
+                closeButton.current?.focus();
+              }}
+              onPlace={() => {
+                checkout.place(review);
+                setReview(null);
+                closeButton.current?.focus();
+              }}
+            />
+          ) : (
+            !!cart?.items.length && (
+              <button
+                type="button"
+                className="my-4 self-start rounded-lg bg-accent px-4 py-3 font-extrabold text-ink hover:bg-[#ffd34d] disabled:opacity-55"
+                disabled={
+                  editingBlocked ||
+                  needsReview ||
+                  !canEdit ||
+                  clearVersion !== null
+                }
+                onClick={() => {
+                  checkout.clearNotice();
+                  setReview(cart);
+                }}
+              >
+                Review order
+              </button>
+            )
+          )}
           <p className="mt-auto border-t border-line pt-4 text-[13px] leading-[1.55] text-secondary">
-            Your cart is shared, but nothing is sent to the kitchen yet.
-            Checkout is coming in the next phase. Payment is at the counter when
-            your order is served.
+            Pay at the counter when your order is served.
           </p>
         </section>
       </Drawer>
