@@ -4,25 +4,22 @@ import { getCart } from "@/api/cart";
 import { getVisitOrders, placeOrder } from "@/api/orders";
 import { ApiError } from "@/api/public";
 import { PENDING_ORDER_KEY } from "@/constants/orders";
-import { messageFor } from "@/lib/public-error";
+import { messageFor, visitAccessLost } from "@/lib/public-error";
 import { tableTokenFromHash } from "@/lib/table-token";
-import { orderAttemptSchema } from "@/schemas/orders";
+import { orderNameSchema, storedOrderAttemptSchema } from "@/schemas/orders";
 import type { Cart } from "@/types/cart";
 import type { OrderAttempt, OrderReceipt } from "@/types/orders";
 
-const visitEnded = (error: unknown): error is ApiError =>
-  error instanceof ApiError &&
-  (error.code === "TABLE_SESSION_REQUIRED" || error.code === "INVALID_TABLE_QR");
-
 export const sameReviewedCart = (left: Cart, right: Cart) =>
-  left.id === right.id && left.version === right.version &&
+  left.id === right.id &&
+  left.version === right.version &&
   left.reviewFingerprint === right.reviewFingerprint &&
   left.totals.total === right.totals.total;
 
 function readAttempt(cartId: string | null) {
   if (!cartId) return null;
   try {
-    const parsed = orderAttemptSchema.safeParse(
+    const parsed = storedOrderAttemptSchema.safeParse(
       JSON.parse(sessionStorage.getItem(PENDING_ORDER_KEY) ?? "null"),
     );
     return parsed.success && parsed.data.cartId === cartId ? parsed.data : null;
@@ -36,7 +33,9 @@ function newRequestId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const hex = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
@@ -48,7 +47,9 @@ export default function useCheckout(
   applyPlacementCart: (cart: Cart) => void,
   refreshPublic: () => void,
 ) {
-  const [attempt, setAttempt] = useState(() => readAttempt(cartId));
+  const [attempt, setAttempt] = useState<OrderAttempt | null>(() =>
+    readAttempt(cartId),
+  );
   const [busy, setBusy] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
   const [notice, setNotice] = useState("");
@@ -59,14 +60,34 @@ export default function useCheckout(
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
+    // Scrub nicknames saved by older builds without losing the request ID.
+    try {
+      const raw = sessionStorage.getItem(PENDING_ORDER_KEY);
+      if (raw) {
+        const stored = storedOrderAttemptSchema.safeParse(JSON.parse(raw));
+        if (stored.success)
+          sessionStorage.setItem(
+            PENDING_ORDER_KEY,
+            JSON.stringify(stored.data),
+          );
+        else sessionStorage.removeItem(PENDING_ORDER_KEY);
+      }
+    } catch {
+      // Checkout remains usable if browser storage is unavailable.
+    }
     return () => controller.abort();
   }, []);
 
   function remember(value: OrderAttempt | null) {
     setAttempt(value);
     try {
-      if (value) sessionStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(value));
-      else if (readAttempt(cartId)) sessionStorage.removeItem(PENDING_ORDER_KEY);
+      if (value)
+        sessionStorage.setItem(
+          PENDING_ORDER_KEY,
+          JSON.stringify(storedOrderAttemptSchema.parse(value)),
+        );
+      else if (readAttempt(cartId))
+        sessionStorage.removeItem(PENDING_ORDER_KEY);
     } catch {
       // Recovery is still available in memory if browser storage is blocked.
     }
@@ -82,7 +103,10 @@ export default function useCheckout(
     if (result.order.tableSessionId !== sessionId)
       throw new ApiError("The shop returned an unexpected order response.", 0);
     if (result.cart) applyPlacementCart(result.cart);
-    complete({ order: result.order, ordersRemaining: result.summary.ordersRemaining });
+    complete({
+      order: result.order,
+      ordersRemaining: result.summary.ordersRemaining,
+    });
   }
 
   async function resolveAttempt(
@@ -93,32 +117,55 @@ export default function useCheckout(
     reason: string,
   ) {
     try {
-      const result = await placeOrder(token, { ...pending, resolveOnly: true }, signal);
+      const result = await placeOrder(
+        token,
+        { ...pending, resolveOnly: true },
+        signal,
+      );
       if (active()) acceptPlacement(result);
     } catch (error) {
       if (!active()) return;
-      if (visitEnded(error)) return endVisit(error);
+      if (visitAccessLost(error)) return endVisit(error);
       if (error instanceof ApiError && error.code === "ORDER_ATTEMPT_CLOSED") {
         remember(null);
         setNotice(`This order wasn't placed. ${reason}`);
       } else {
-        setNotice(`${reason} We couldn't verify whether the order was placed. Check again or ask staff.`);
+        setNotice(
+          `${reason} We couldn't verify whether the order was placed. Check again or ask staff.`,
+        );
       }
     }
   }
 
   const refreshAfterRejection = (error: ApiError) => {
-    if (error.code === "STORE_CLOSED" || error.code?.startsWith("MENU_ITEM_") ||
-        error.code?.startsWith("OPTION_")) refreshPublic();
+    if (
+      error.code === "STORE_CLOSED" ||
+      error.code?.startsWith("MENU_ITEM_") ||
+      error.code?.startsWith("OPTION_")
+    )
+      refreshPublic();
   };
 
   async function run(
-    action: (token: string, signal: AbortSignal, active: () => boolean) => Promise<void>,
+    action: (
+      token: string,
+      signal: AbortSignal,
+      active: () => boolean,
+    ) => Promise<void>,
   ) {
     const token = tableTokenFromHash(window.location.hash);
     const signal = lifetime.current?.signal;
-    if (!token || !sessionId || !cartId || !signal || signal.aborted || inFlight.current) return;
-    const active = () => !signal.aborted && tableTokenFromHash(window.location.hash) === token;
+    if (
+      !token ||
+      !sessionId ||
+      !cartId ||
+      !signal ||
+      signal.aborted ||
+      inFlight.current
+    )
+      return;
+    const active = () =>
+      !signal.aborted && tableTokenFromHash(window.location.hash) === token;
     inFlight.current = true;
     setBusy(true);
     setCanRetry(false);
@@ -148,26 +195,54 @@ export default function useCheckout(
       if (cart.id !== pending.cartId) return endVisit();
       const result = await getVisitOrders(token, sessionId!, signal);
       if (!active()) return;
-      const order = result.orders.find((item) =>
-        item.id === pending.requestId && item.tableSessionId === sessionId);
+      const order = result.orders.find(
+        (item) =>
+          item.id === pending.requestId && item.tableSessionId === sessionId,
+      );
       if (order) {
         complete({ order, ordersRemaining: result.summary.ordersRemaining });
       } else if (cart.version > pending.version) {
         remember(null);
-        setNotice("This order wasn't placed. The shared cart changed; review it before placing an order.");
-      } else if (cart.version === pending.version &&
-        (cart.totals.total !== pending.total || cart.reviewFingerprint !== pending.reviewFingerprint)) {
-        await resolveAttempt(pending, token, signal, active, "The cart or its prices changed. Review the latest cart before ordering.");
+        setNotice(
+          "This order wasn't placed. The shared cart changed; review it before placing an order.",
+        );
+      } else if (
+        cart.version === pending.version &&
+        (cart.totals.total !== pending.total ||
+          cart.reviewFingerprint !== pending.reviewFingerprint)
+      ) {
+        await resolveAttempt(
+          pending,
+          token,
+          signal,
+          active,
+          "The cart or its prices changed. Review the latest cart before ordering.",
+        );
+      } else if (cart.version === pending.version && !pending.customerName) {
+        await resolveAttempt(
+          pending,
+          token,
+          signal,
+          active,
+          "Review the cart and enter a name before placing an order.",
+        );
       } else if (cart.version === pending.version) {
         setCanRetry(true);
-        setNotice("No matching order yet. You can check again or retry the same order without creating a duplicate.");
+        setNotice(
+          "No matching order yet. You can check again or retry the same order without creating a duplicate.",
+        );
       } else {
-        setNotice("We still can't confirm the order. Check again or ask staff before placing another order.");
+        setNotice(
+          "We still can't confirm the order. Check again or ask staff before placing another order.",
+        );
       }
     } catch (error) {
       if (!active()) return;
-      if (visitEnded(error)) endVisit(error);
-      else setNotice("We couldn't verify whether the order was placed. Check again or ask staff before ordering again.");
+      if (visitAccessLost(error)) endVisit(error);
+      else
+        setNotice(
+          "We couldn't verify whether the order was placed. Check again or ask staff before ordering again.",
+        );
     }
   }
 
@@ -179,13 +254,18 @@ export default function useCheckout(
           if (!active()) return;
           if (data.id !== cartId) return endVisit();
           if (!sameReviewedCart(data, reviewed)) {
-            setNotice("Nothing was sent. The cart or its prices changed. Review the latest cart first.");
+            setNotice(
+              "Nothing was sent. The cart or its prices changed. Review the latest cart first.",
+            );
             return;
           }
         } catch (error) {
           if (!active()) return;
-          if (visitEnded(error)) endVisit(error);
-          else setNotice(`Nothing was sent. Couldn't check the latest cart. ${messageFor(error)}`);
+          if (visitAccessLost(error)) endVisit(error);
+          else
+            setNotice(
+              `Nothing was sent. Couldn't check the latest cart. ${messageFor(error)}`,
+            );
           return;
         }
       }
@@ -196,14 +276,20 @@ export default function useCheckout(
         acceptPlacement(result);
       } catch (error) {
         if (!active()) return;
-        if (visitEnded(error)) return endVisit(error);
-        if (!(error instanceof ApiError) || error.status === 0 || error.status >= 500 || error.status === 429) {
+        if (visitAccessLost(error)) return endVisit(error);
+        if (
+          !(error instanceof ApiError) ||
+          error.status === 0 ||
+          error.status >= 500 ||
+          error.status === 429
+        ) {
           await reconcile(pending, token, signal, active);
           return;
         }
-        const reason = error.code === "CART_VERSION_CONFLICT"
-          ? "The cart or its prices changed. Review the latest cart before placing an order."
-          : messageFor(error);
+        const reason =
+          error.code === "CART_VERSION_CONFLICT"
+            ? "The cart or its prices changed. Review the latest cart before placing an order."
+            : messageFor(error);
         refreshAfterRejection(error);
         if (!reviewed) {
           await resolveAttempt(pending, token, signal, active, reason);
@@ -221,18 +307,36 @@ export default function useCheckout(
     notice,
     receipt,
     canRetry,
-    place: (cart: Cart) => {
-      if (attempt || cart.id !== cartId || !cart.items.length || inFlight.current) return;
-      void submit({
-        requestId: newRequestId(), cartId, version: cart.version,
-        total: cart.totals.total, reviewFingerprint: cart.reviewFingerprint,
-      }, cart);
+    place: (cart: Cart, customerName: string) => {
+      const name = orderNameSchema.safeParse(customerName);
+      if (
+        !name.success ||
+        attempt ||
+        cart.id !== cartId ||
+        !cart.items.length ||
+        inFlight.current
+      )
+        return;
+      void submit(
+        {
+          requestId: newRequestId(),
+          cartId,
+          version: cart.version,
+          total: cart.totals.total,
+          reviewFingerprint: cart.reviewFingerprint,
+          customerName: name.data,
+        },
+        cart,
+      );
     },
     check: () => {
-      if (attempt) void run((token, signal, active) => reconcile(attempt, token, signal, active));
+      if (attempt)
+        void run((token, signal, active) =>
+          reconcile(attempt, token, signal, active),
+        );
     },
     retry: () => {
-      if (attempt && canRetry) void submit(attempt);
+      if (attempt?.customerName && canRetry) void submit(attempt);
     },
     dismiss: () => setReceipt(null),
     clearNotice: () => setNotice(""),

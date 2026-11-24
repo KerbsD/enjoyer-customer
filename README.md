@@ -32,14 +32,22 @@ uncertain outcome, a successful cart read and explicit review are required befor
 retrying. Requests time out after 15 seconds, including response-body reads.
 
 From the cart, tap **Review order**, verify the table, items and total, then tap
-**Place order**. The first order waits for staff confirmation. Pay at the counter
+**Place order** after entering a first name or nickname for staff. The first
+order waits for staff confirmation. Pay at the counter
 when the order is served; the app does not take payment. If the confirmation
 response is lost, check the attempted order before trying again.
+Checkout recovery keeps the request ID, not the nickname, in tab storage. If
+an unresolved request did not place an order and the page was reloaded, review
+the cart and enter a name again.
 
 Open **Table orders** to see the current visit’s orders, payment status, total
 and remaining allowance. Status updates live when connected, and **Refresh
 orders** remains available. Orders can be cancelled before preparation;
 cancelling does not put items back into the cart. For later changes, ask staff.
+
+If the Owner enables an ordering network, guests outside the approved network
+can still browse. They must connect to the café’s guest Wi-Fi and tap **Try
+again** to open or resume their visit.
 
 Deploy this frontend with the matching API version that supports `/tables/resume`,
 requires `cartId` on cart writes, and supports the reviewed checkout and

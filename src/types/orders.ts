@@ -1,6 +1,11 @@
 import type { Ref } from "react";
 import type { z } from "zod";
-import type { orderAttemptSchema, placementSchema, tableOrderSchema, visitOrdersSchema } from "@/schemas/orders";
+import type {
+  orderAttemptSchema,
+  placementSchema,
+  tableOrderSchema,
+  visitOrdersSchema,
+} from "@/schemas/orders";
 import type { Cart } from "@/types/cart";
 import type useTableOrders from "@/modules/Order/useTableOrders";
 
@@ -21,7 +26,7 @@ export type CheckoutActions = {
   notice: string;
   receipt: OrderReceipt | null;
   canRetry: boolean;
-  place: (cart: import("@/types/cart").Cart) => void;
+  place: (cart: Cart, customerName: string) => void;
   check: () => void;
   retry: () => void;
   dismiss: () => void;
@@ -35,7 +40,7 @@ export type OrderReviewProps = {
   disabled: boolean;
   heading: Ref<HTMLHeadingElement>;
   onBack: () => void;
-  onPlace: () => void;
+  onPlace: (customerName: string) => void;
 };
 
 export type OrderConfirmationProps = {
@@ -49,4 +54,4 @@ export type TableOrderProps = {
   storeOpen: boolean;
   canOrder: boolean;
   orders: ReturnType<typeof useTableOrders>;
-}
+};

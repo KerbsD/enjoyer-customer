@@ -1,8 +1,10 @@
 import { ClipboardCheck, ReceiptText } from "lucide-react";
+import { useId, useState } from "react";
 
 import { actionButton } from "@/components/button-styles";
-import { ORDER_STATUS_LABEL } from "@/constants/orders";
+import { ORDER_NAME_MAX_LENGTH, ORDER_STATUS_LABEL } from "@/constants/orders";
 import { peso } from "@/lib/shop-format";
+import { orderNameSchema } from "@/schemas/orders";
 
 import type { OrderConfirmationProps, OrderReviewProps } from "@/types/orders";
 
@@ -15,10 +17,24 @@ export function OrderReview({
   onBack,
   onPlace,
 }: OrderReviewProps) {
+  const fieldId = useId();
+  const [name, setName] = useState("");
+  const [nameError, setNameError] = useState(false);
   return (
-    <section
+    <form
       className="my-5 grid gap-4 rounded-lg border border-line bg-muted p-4"
       aria-labelledby="order-review"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (changed || disabled) return;
+        const result = orderNameSchema.safeParse(name);
+        if (!result.success) {
+          setNameError(true);
+          event.currentTarget.querySelector("input")?.focus();
+          return;
+        }
+        onPlace(result.data);
+      }}
     >
       <div>
         <h3
@@ -60,6 +76,34 @@ export function OrderReview({
       <p className="text-sm">
         Pay at the counter when your order is served. No payment is taken here.
       </p>
+      <div className="grid gap-1.5 text-sm">
+        <label htmlFor={fieldId} className="font-bold">
+          First name or nickname
+        </label>
+        <input
+          id={fieldId}
+          name="customerName"
+          autoComplete="given-name"
+          maxLength={ORDER_NAME_MAX_LENGTH}
+          required
+          value={name}
+          aria-invalid={nameError || undefined}
+          aria-describedby={`${fieldId}-hint${nameError ? ` ${fieldId}-error` : ""}`}
+          onChange={(event) => {
+            setName(event.target.value);
+            setNameError(false);
+          }}
+          className="min-w-0 rounded-md border border-line bg-paper px-3 py-2.5"
+        />
+        <p id={`${fieldId}-hint`} className="text-secondary">
+          Required so staff know who the order is for.
+        </p>
+        {nameError && (
+          <p id={`${fieldId}-error`} role="alert">
+            Enter a first name or nickname on one line.
+          </p>
+        )}
+      </div>
       {changed && (
         <p role="alert" className="text-sm font-bold">
           The cart changed. Go back and review the latest cart.
@@ -70,15 +114,14 @@ export function OrderReview({
           Back to cart
         </button>
         <button
-          type="button"
+          type="submit"
           disabled={changed || disabled}
-          onClick={onPlace}
           className="rounded-lg bg-accent px-4 py-3 font-extrabold text-ink hover:bg-[#ffd34d] disabled:opacity-55"
         >
           Place order
         </button>
       </div>
-    </section>
+    </form>
   );
 }
 

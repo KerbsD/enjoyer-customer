@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, openTable, resumeTable, resolveTable } from "@/api/public";
 import { SESSION_KEY } from "@/constants/menu";
+import { PENDING_ORDER_KEY } from "@/constants/orders";
 import { messageFor } from "@/lib/public-error";
 import { tableTokenFromHash } from "@/lib/table-token";
 import type { TableState } from "@/types/menu";
@@ -143,6 +144,7 @@ export default function useTableVisit(mode: "browse" | "table") {
     window.history.replaceState(window.history.state, "", url);
     try {
       sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(PENDING_ORDER_KEY);
     } catch {
       // The QR fragment is still cleared if storage is unavailable.
     }
@@ -152,7 +154,10 @@ export default function useTableVisit(mode: "browse" | "table") {
 
   const endVisit = useCallback((error?: ApiError) => {
     setTable((current) => {
-      if (error?.code === "INVALID_TABLE_QR") {
+      if (
+        error?.code === "INVALID_TABLE_QR" ||
+        error?.code === "ORDERING_NETWORK_REQUIRED"
+      ) {
         return { kind: "error", message: messageFor(error) };
       }
       return current.kind === "ready"

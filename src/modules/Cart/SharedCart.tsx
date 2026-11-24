@@ -144,7 +144,8 @@ export default function SharedCart({
                   {checkout.canRetry &&
                     canEdit &&
                     cart?.version === checkout.attempt.version &&
-                    cart.reviewFingerprint === checkout.attempt.reviewFingerprint &&
+                    cart.reviewFingerprint ===
+                      checkout.attempt.reviewFingerprint &&
                     cart.totals.total === checkout.attempt.total && (
                       <button
                         type="button"
@@ -357,8 +358,8 @@ export default function SharedCart({
                 setReview(null);
                 closeButton.current?.focus();
               }}
-              onPlace={() => {
-                checkout.place(review);
+              onPlace={(customerName) => {
+                checkout.place(review, customerName);
                 setReview(null);
                 closeButton.current?.focus();
               }}

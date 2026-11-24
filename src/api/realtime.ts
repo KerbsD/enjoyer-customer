@@ -73,9 +73,12 @@ export async function* sseMessages(
 const isVisitFailure = (failure: unknown): failure is AccessEnded => {
   if (typeof failure !== "object" || failure === null) return false;
   const { code, status, message } = failure as Partial<AccessEnded>;
-  return (message === undefined || typeof message === "string") &&
+  return (
+    (message === undefined || typeof message === "string") &&
     ((status === 404 && code === "INVALID_TABLE_QR") ||
-     (status === 409 && code === "TABLE_SESSION_REQUIRED"));
+      (status === 409 && code === "TABLE_SESSION_REQUIRED") ||
+      (status === 403 && code === "ORDERING_NETWORK_REQUIRED"))
+  );
 };
 const wait = (ms: number, signal: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
@@ -115,10 +118,14 @@ export const watchRealtime = (
   const apply = async (payload: unknown, sync = false) => {
     if (controller.signal.aborted) return;
     if (sync) fullSyncPending = true;
-    const state = options.validateState ? options.validateState(payload) : payload as RealtimeState;
+    const state = options.validateState
+      ? options.validateState(payload)
+      : (payload as RealtimeState);
     const changed = Object.keys(state.resources).filter(
       (key) =>
-        fullSyncPending || !previous || previous.resources[key] !== state.resources[key],
+        fullSyncPending ||
+        !previous ||
+        previous.resources[key] !== state.resources[key],
     );
     if (changed.length) {
       try {
@@ -156,7 +163,7 @@ export const watchRealtime = (
         cache: "no-store",
         credentials: "omit",
       });
-      if (response.status === 404 || response.status === 409) {
+      if ([403, 404, 409].includes(response.status)) {
         const details = await response.json().catch(() => ({}));
         const failure = { ...details, status: response.status };
         if (isVisitFailure(failure)) {
@@ -178,7 +185,8 @@ export const watchRealtime = (
       }
       if (!stream) {
         if (response.status !== 204) await apply((await response.json()).data);
-        else if (!previous || fullSyncPending) throw new Error("Realtime snapshot still pending");
+        else if (!previous || fullSyncPending)
+          throw new Error("Realtime snapshot still pending");
         if (!controller.signal.aborted) options.onStatus?.("polling");
         retryDelay = 5_000;
         return;
@@ -210,7 +218,8 @@ export const watchRealtime = (
           retryDelay = 5_000;
         } else if (message.event === "access-ended") {
           const failure: unknown = JSON.parse(message.data);
-          if (!isVisitFailure(failure)) throw new Error("Unconfirmed realtime access failure");
+          if (!isVisitFailure(failure))
+            throw new Error("Unconfirmed realtime access failure");
           ended(failure);
           break;
         } else if (["unavailable", "reconnect"].includes(message.event)) break;

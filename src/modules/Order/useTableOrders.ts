@@ -2,16 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cancelOrder, getVisitOrders } from "@/api/orders";
 import { ApiError } from "@/api/public";
-import { messageFor } from "@/lib/public-error";
+import { messageFor, visitAccessLost } from "@/lib/public-error";
 import { tableTokenFromHash } from "@/lib/table-token";
 import type { VisitOrders } from "@/types/orders";
 
 export const canCancelOrder = (status: string) =>
   status === "pending_confirmation" || status === "received";
-
-const visitEnded = (error: unknown): error is ApiError =>
-  error instanceof ApiError &&
-  (error.code === "TABLE_SESSION_REQUIRED" || error.code === "INVALID_TABLE_QR");
 
 export default function useTableOrders(
   sessionId: string | null,
@@ -37,11 +33,19 @@ export default function useTableOrders(
 
   const refresh = useCallback(async () => {
     const token = tableTokenFromHash(window.location.hash);
-    if (!sessionId || !token || writing.current || !lifetime.current || lifetime.current.signal.aborted) return;
+    if (
+      !sessionId ||
+      !token ||
+      writing.current ||
+      !lifetime.current ||
+      lifetime.current.signal.aborted
+    )
+      return;
     lastRead.current?.abort();
     const controller = new AbortController();
     lastRead.current = controller;
-    const active = () => !controller.signal.aborted &&
+    const active = () =>
+      !controller.signal.aborted &&
       tableTokenFromHash(window.location.hash) === token;
     setReading(true);
     try {
@@ -52,7 +56,7 @@ export default function useTableOrders(
       return true;
     } catch (error) {
       if (!active()) return;
-      if (visitEnded(error)) {
+      if (visitAccessLost(error)) {
         setData(null);
         endVisit(error);
       } else {
@@ -67,27 +71,43 @@ export default function useTableOrders(
     const token = tableTokenFromHash(window.location.hash);
     const signal = lifetime.current?.signal;
     const order = data?.orders.find((item) => item.id === id);
-    if (!sessionId || !token || !signal || signal.aborted || writing.current || reading ||
-        readError || !order || !canCancelOrder(order.status)) return;
-    const active = () => !signal.aborted && tableTokenFromHash(window.location.hash) === token;
+    if (
+      !sessionId ||
+      !token ||
+      !signal ||
+      signal.aborted ||
+      writing.current ||
+      reading ||
+      readError ||
+      !order ||
+      !canCancelOrder(order.status)
+    )
+      return;
+    const active = () =>
+      !signal.aborted && tableTokenFromHash(window.location.hash) === token;
     writing.current = true;
     setCancelling(true);
     setNotice("");
     let ended = false;
     try {
       await cancelOrder(token, sessionId, id, signal);
-      if (active()) setNotice(`Order ${order.orderNumber} was cancelled. Its items were not returned to the cart.`);
+      if (active())
+        setNotice(
+          `Order ${order.orderNumber} was cancelled. Its items were not returned to the cart.`,
+        );
     } catch (error) {
       if (!active()) return;
-      if (visitEnded(error)) {
+      if (visitAccessLost(error)) {
         ended = true;
         setData(null);
         endVisit(error);
         return;
       }
-      setNotice(error instanceof ApiError && error.status > 0 && error.status < 500
-        ? messageFor(error)
-        : "We couldn't confirm the cancellation. Check the latest order status before trying again.");
+      setNotice(
+        error instanceof ApiError && error.status > 0 && error.status < 500
+          ? messageFor(error)
+          : "We couldn't confirm the cancellation. Check the latest order status before trying again.",
+      );
     } finally {
       writing.current = false;
       if (active()) {

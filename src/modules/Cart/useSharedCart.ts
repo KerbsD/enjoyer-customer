@@ -8,14 +8,10 @@ import {
   removeCartLine,
   updateCartLine,
 } from "@/api/cart";
-import { messageFor } from "@/lib/public-error";
+import { messageFor, visitAccessLost } from "@/lib/public-error";
 import { tableTokenFromHash } from "@/lib/table-token";
 import type { Cart, CartActionResult, CartState } from "@/types/cart";
 import { cartSchema, type CartCustomization } from "@/schemas/cart";
-
-const sessionGone = (error: unknown) =>
-  error instanceof ApiError &&
-  ["TABLE_SESSION_REQUIRED", "INVALID_TABLE_QR"].includes(error.code ?? "");
 
 export default function useSharedCart(
   sessionId: string | null,
@@ -81,8 +77,8 @@ export default function useSharedCart(
         return true;
       } catch (error) {
         if (!active()) return;
-        if (sessionGone(error)) {
-          endVisit(error as ApiError);
+        if (visitAccessLost(error)) {
+          endVisit(error);
           cartRef.current = null;
           setState({ kind: "idle" });
         } else if (cartRef.current) {
@@ -211,8 +207,8 @@ export default function useSharedCart(
         refreshAfterFailure = true;
         return "conflict";
       }
-      if (sessionGone(error)) {
-        endVisit(error as ApiError);
+      if (visitAccessLost(error)) {
+        endVisit(error);
         cartRef.current = null;
         setState({ kind: "idle" });
       } else {

@@ -110,6 +110,20 @@ traffic, and cross-origin browsers can honor the API’s `Retry-After` header.
 
 **Done when:** the QR menu opens off-site but ordering is blocked; guests on café Wi-Fi can order during store hours with a name; an IP change can be recovered without a remote admin login changing the approved network. Complete this phase before distributing live ordering QR codes.
 
+**First slice:** Checkout requires a first name or nickname; the API stores it
+and the staff board shows it. Names are not returned in QR-scoped order views.
+Apply API migration `0007_order_customer_name.sql` before deploying the matching
+API, customer and admin builds.
+
+**Network slice:** The owner can enroll, replace, or revoke the terminal and
+manually override the approved IP. An enrolled browser checks for an address
+change while a Manager or Owner is signed in. An enabled network check guards
+table visits, cart/orders, cancellation, and realtime, while browsing stays
+public. The restriction defaults to off and requires an explicit IP source in
+production; verify the deployed proxy and guest egress before enabling it.
+Nicknames are not persisted in browser storage. Shared-cart behavior remains unchanged; the
+one-phone policy is a separate product decision.
+
 ## Phase 7 — Quality and release sign-off
 
 **Goal:** make the full mobile journey dependable before table QR distribution.
