@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import {
-  ApiError,
-  getCurrentOrdersSession,
-  openTable,
-  resolveTable,
-} from "@/api/public";
+import { ApiError, openTable, resumeTable, resolveTable } from "@/api/public";
 import { SESSION_KEY } from "@/constants/menu";
+import { PENDING_ORDER_KEY } from "@/constants/orders";
 import { messageFor } from "@/lib/public-error";
 import { tableTokenFromHash } from "@/lib/table-token";
 import type { TableState } from "@/types/menu";
+import type { Table } from "@/types/public";
+
+const VISIT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function rememberedVisit(): { tableId: number; sessionId: string } | null {
   try {
@@ -22,7 +22,8 @@ function rememberedVisit(): { tableId: number; sessionId: string } | null {
       "tableId" in value &&
       "sessionId" in value &&
       typeof value.tableId === "number" &&
-      typeof value.sessionId === "string"
+      typeof value.sessionId === "string" &&
+      VISIT_ID.test(value.sessionId)
     ) {
       return { tableId: value.tableId, sessionId: value.sessionId };
     }
@@ -64,24 +65,40 @@ export default function useTableVisit(mode: "browse" | "table") {
       queueMicrotask(() => {
         if (active) setTable({ kind: "missing" });
       });
-      return () => { active = false; };
+      return () => {
+        active = false;
+      };
     }
     const controller = new AbortController();
+
     const load = async () => {
       setTable({ kind: "loading" });
       try {
         const resolved = (await resolveTable(token, controller.signal)).data;
         const previous = rememberedVisit();
         if (previous?.tableId === resolved.id) {
+          // Resume is one atomic, non-creating request. It returns the exact
+          // remembered session or TABLE_SESSION_REQUIRED; it can never adopt a
+          // session that replaced it while this page was closed.
           try {
-            const current = (
-              await getCurrentOrdersSession(token, controller.signal)
+            const resumed = (
+              await resumeTable(token, previous.sessionId, controller.signal)
             ).data;
-            if (current.session.id !== previous.sessionId) {
+            if (resumed.session.id !== previous.sessionId) {
               if (!controller.signal.aborted)
                 setTable({ kind: "ended", table: resolved });
               return;
             }
+            if (!controller.signal.aborted) {
+              saveVisit(resumed.table.id, resumed.session.id);
+              setTable({
+                kind: "ready",
+                table: resumed.table,
+                sessionId: resumed.session.id,
+                cartId: resumed.cart.id,
+              });
+            }
+            return;
           } catch (error) {
             if (
               error instanceof ApiError &&
@@ -101,6 +118,7 @@ export default function useTableVisit(mode: "browse" | "table") {
             kind: "ready",
             table: opened.table,
             sessionId: opened.session.id,
+            cartId: opened.cart.id,
           });
         }
       } catch (error) {
@@ -117,28 +135,44 @@ export default function useTableVisit(mode: "browse" | "table") {
     setScanVersion((value) => value + 1);
   };
 
-  const startNewVisit = async () => {
-    const hash = window.location.hash;
-    const token = tableTokenFromHash(hash);
-    if (!token) {
-      setTable({ kind: "missing" });
-      return;
-    }
-    setTable({ kind: "loading" });
+  const resetVisit = () => {
+    if (table.kind !== "ended") return;
+    // Remove the old scan from the current history entry before forgetting
+    // the visit. Reloading this page must not open a replacement visit.
+    const url = new URL(window.location.href);
+    url.hash = "";
+    window.history.replaceState(window.history.state, "", url);
     try {
-      const opened = (await openTable(token)).data;
-      if (window.location.hash !== hash) return;
-      saveVisit(opened.table.id, opened.session.id);
-      setTable({
-        kind: "ready",
-        table: opened.table,
-        sessionId: opened.session.id,
-      });
-    } catch (error) {
-      if (window.location.hash === hash)
-        setTable({ kind: "error", message: messageFor(error) });
+      sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(PENDING_ORDER_KEY);
+    } catch {
+      // The QR fragment is still cleared if storage is unavailable.
     }
+    setTable({ kind: "missing" });
+    setScanVersion((value) => value + 1);
   };
 
-  return { table, retryTable, startNewVisit };
+  const endVisit = useCallback((error?: ApiError) => {
+    setTable((current) => {
+      if (
+        error?.code === "INVALID_TABLE_QR" ||
+        error?.code === "ORDERING_NETWORK_REQUIRED"
+      ) {
+        return { kind: "error", message: messageFor(error) };
+      }
+      return current.kind === "ready"
+        ? { kind: "ended", table: current.table }
+        : current;
+    });
+  }, []);
+
+  const updateTable = useCallback((sessionId: string, table: Table) => {
+    setTable((current) =>
+      current.kind === "ready" && current.sessionId === sessionId
+        ? { ...current, table }
+        : current,
+    );
+  }, []);
+
+  return { table, retryTable, resetVisit, endVisit, updateTable };
 }
