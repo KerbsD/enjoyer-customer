@@ -2,6 +2,8 @@
 
 This plan follows `../specs.md` for product behavior, `../api/README.md` and the API implementation for the current contract, and `../admin` for frontend organization. Complete and verify **one phase at a time** before beginning the next. Phases 1–4 are implemented; real-API cart, checkout, tracking and physical-device sign-off are still pending.
 
+**Current direction:** Phases 8–10 replace the shared cart with a local draft per browser tab. Multiple phones can still order during the same table visit. Placed orders and the order limit remain shared across the visit. Earlier phases document the shared-cart implementation; Phase 10 applies the Phase 7 release checks to its replacement.
+
 ## What to carry over from the admin frontend
 
 - `../admin/src/app`: small App Router route pages and layouts; business UI lives in feature modules rather than large page files.
@@ -37,7 +39,7 @@ The customer project began as the default Next.js starter; Phase 1 adds the publ
 
 **Done when:** two devices can see the same cart after refreshing, stale writes do not lose changes, selection rules and the 500-character note limit are enforced in the UI and API, and the cart stays intact after a short disconnect.
 
-**Verification (2026-11-18):** Unit tests cover selection/quantity/note constraints, exact centavo calculations, versioned cart requests and conflict payloads. Eight Chromium journeys against a mocked API cover add/customize/edit/remove/clear, refresh persistence, failed-add feedback, slow focus refresh, two-device conflicts and required review, a lost write response, closed-shop/sold-out states, the keyboard-accessible GSAP cart drawer, reduced-motion behavior, 320px/390px layouts, and automated axe checks. The development server was also checked in a browser with a real Table 1 QR and an intercepted add request: the dialog opens and the mocked item appears, without writing to Table 1. `GET /tables/cart` with that QR returned 200 with an empty version-0 cart and customer-origin CORS. **Still required:** write verification against a disposable real table, plus physical-device manual checks.
+**Verification (2026-11-18):** Unit tests cover selection/quantity/note constraints, exact centavo calculations, versioned cart requests and conflict payloads. Eight Chromium journeys against a mocked API cover add/customize/edit/remove/clear, refresh persistence, failed-add feedback, slow focus refresh, two-device conflicts and required review, a lost write response, closed-shop/sold-out states, the keyboard-accessible cart drawer, 320px/390px layouts, and automated axe checks. The development server was also checked in a browser with a real Table 1 QR and an intercepted add request: the dialog opens and the mocked item appears, without writing to Table 1. `GET /tables/cart` with that QR returned 200 with an empty version-0 cart and customer-origin CORS. **Still required:** write verification against a disposable real table, plus physical-device manual checks.
 
 **Pre-commit audit follow-up (2026-11-19):** The suite now has 12 unit tests and
 24 mocked Chromium journeys. Added coverage for session/editor reset, late
@@ -105,7 +107,7 @@ traffic, and cross-origin browsers can honor the API’s `Retry-After` header.
 - Add an owner-controlled **Ordering network** setting. The owner enrolls a designated café terminal once. While an authorized admin uses that terminal, the API can automatically refresh the saved public IP when it changes. Ordinary admin logins, including from home or mobile data, must not change it. Show the active address and last change in admin, audit updates, and provide an owner-only manual override and terminal revocation.
 - Enforce the network rule in the API, not just the UI. Keep the menu and hours public; require the configured café network before opening or joining an ordering visit, changing the cart, or placing an order. If the network cannot be verified, keep browsing available and tell the customer to connect to guest Wi-Fi. Store hours remain a separate placement check.
 - Require a first name or nickname on **each order**, validate and store it server-side, and show it on the staff board for handoff. It is a label, not a password or proof of presence.
-- Confirm whether to keep the shared cart on the café network or switch to one ordering phone per visit. If switching, only a phone that passes the network check may claim the visit; define how guests recover access if that phone becomes unavailable without losing the cart.
+- Keep the café network check for each ordering phone. Phases 8–10 replace shared editing with independent drafts; no phone claims exclusive control of the visit.
 - Before relying on public-IP matching, verify what the deployed API sees from the café terminal, two phones on guest Wi-Fi, and a phone on mobile data. Check IPv4/IPv6, whether the ISP shares the public address with other subscribers, and whether the guest and admin networks use the same internet connection. If the address cannot reliably distinguish on-site traffic, revisit the network check before rollout. Keep guest and admin Wi-Fi separate.
 
 **Done when:** the QR menu opens off-site but ordering is blocked; guests on café Wi-Fi can order during store hours with a name; an IP change can be recovered without a remote admin login changing the approved network. Complete this phase before distributing live ordering QR codes.
@@ -121,8 +123,7 @@ change while a Manager or Owner is signed in. An enabled network check guards
 table visits, cart/orders, cancellation, and realtime, while browsing stays
 public. The restriction defaults to off and requires an explicit IP source in
 production; verify the deployed proxy and guest egress before enabling it.
-Nicknames are not persisted in browser storage. Shared-cart behavior remains unchanged; the
-one-phone policy is a separate product decision.
+Nicknames are not persisted in browser storage. The network slice did not change shared-cart behavior.
 
 ## Phase 7 — Quality and release sign-off
 
@@ -133,6 +134,37 @@ one-phone policy is a separate product decision.
 - Check API CORS for the deployed customer origin and `X-Table-Token`, HTTPS, network/console output, no token leakage in URLs beyond the QR fragment or in analytics/logs, and no customer access to staff endpoints. Record remaining manual checks separately from mocked-test passes.
 
 **Done when:** automated checks pass and the real API + real QR flow is verified on common phones before codes are handed to customers.
+
+## Phase 8 — API checkout without a shared cart
+
+**Goal:** a phone can submit its own reviewed items to the current visit without creating, fetching, or updating a server cart.
+
+- Define the checkout contract around the visit ID, item IDs, quantities, selected option IDs, per-item notes, customer name, and a unique request ID. Add a server review step that returns authoritative prices and totals. Bind the reviewed result to the visit and selection so checkout can require explicit re-review if prices, availability, or selections change. Review does not reserve availability or use an order slot.
+- Revalidate the QR token, exact session, café network, store hours, selections, and price at placement. Keep the existing order snapshots, first-order confirmation, and visit-wide order limit. Serialize placement per visit in the database so concurrent phones cannot bypass confirmation or exceed the limit.
+- Replace cart-version-based retry recovery with durable, session-scoped idempotency. An identical retry with the same request ID returns the original result; reusing an ID with a different submission must not create another order. Support resolving an uncertain attempt without relying on a cart version or treating “not found yet” as proof that a delayed request cannot still commit.
+- Make session open/resume, order history/cancellation, realtime access, and staff table views work without a cart row. Keep a temporary compatibility path if the existing customer build is still deployed, and ensure old and new placement paths enforce the same visit-wide rules.
+
+**Done when:** integration tests place orders with no server cart, reject stale visits and changed prices, replay a lost response without duplication, and show that concurrent submissions respect first-order confirmation and the remaining limit.
+
+## Phase 9 — Local cart and customer checkout
+
+**Goal:** customers can edit their own draft instantly, while placed orders remain visible to everyone at the table.
+
+- Store draft items in `sessionStorage`, scoped to the exact table visit. Add, edit, remove, and clear locally with no cart requests, loading button states, or cross-phone version conflicts. Restore the draft on same-tab refresh, and discard it when the customer resets or switches visits or the API invalidates the session. Keep the QR token and customer name out of draft storage.
+- Preserve customization rules, per-item notes, and exact centavo calculations. Show the local total while editing and the API-confirmed total at review. Preserve draft items when review or checkout fails, and require explicit confirmation after any repricing. Clear the submitted draft only after placement is confirmed.
+- Use the new checkout contract and preserve the pending request ID across a same-tab reload so an interrupted submission can be reconciled. Keep realtime updates for orders, tables, menu, and store status. Menu updates can flag unavailable local items for review; they must not replace or erase the draft.
+
+**Done when:** the browser tests show that local edits cause no cart requests, two phones retain separate drafts while seeing the same placed orders, and refresh, repricing, failed submission, and expired visits behave as expected.
+
+## Phase 10 — Cutover, cleanup, and release sign-off
+
+**Goal:** retire shared-cart infrastructure after the local-cart flow passes live verification.
+
+- Coordinate the API/customer rollout and any staff-facing contract changes. Let active legacy visits finish before disabling shared-cart access. Unsubmitted shared drafts are not copied into each phone’s local cart; if an active visit must be switched, communicate that its shared draft must be re-entered. Preserve placed orders and current order history.
+- Remove the legacy `/tables/cart` routes, cart revisions in realtime, cart fields in visit responses, and unused client and API code after confirming there are no remaining consumers. Retire cart tables through a separate migration after the rollback window. Update `../specs.md` and the API and customer documentation for the new flow.
+- Repeat the Phase 7 release checks on a running API and a disposable table, replacing shared-cart conflict cases with two-phone draft isolation and concurrent checkout tests. Verify same-tab recovery, lost-response retries, price changes, staff handoff, cancellation, session expiry, guest Wi-Fi restrictions, and SSE/polling fallback using two phones and a real QR.
+
+**Done when:** no deployed client calls legacy cart endpoints, the two-phone flow passes live checks, and placed orders and visit limits behave the same after cutover.
 
 ## Boundaries and decisions to confirm during implementation
 

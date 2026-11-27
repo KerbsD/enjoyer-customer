@@ -7,11 +7,11 @@ import Drawer from "@/components/Drawer";
 import { peso } from "@/lib/shop-format";
 import type { Cart, SharedCartProps } from "@/types/cart";
 
-import { actionButton } from "@/components/button-styles";
+import { actionButton, primaryButton } from "@/components/button-styles";
 import { OrderConfirmation, OrderReview } from "@/modules/Order/OrderReview";
 import { sameReviewedCart } from "@/modules/Order/useCheckout";
 
-import { useAnimateSharedCart } from "./useAnimateSharedCart";
+import { useCartDrawer } from "./useCartDrawer";
 
 export default function SharedCart({
   table,
@@ -32,7 +32,7 @@ export default function SharedCart({
   onRefresh,
   onReview,
 }: SharedCartProps) {
-  const { open, setOpen, cart } = useAnimateSharedCart({
+  const { open, setOpen, cart } = useCartDrawer({
     state,
     needsReview,
     revealId,
@@ -73,22 +73,19 @@ export default function SharedCart({
         }}
         labelledBy="cart-title"
       >
-        <section className="flex min-h-full flex-col px-6 pt-7 pb-8 max-[420px]:px-4.5">
-          <div className="flex items-start justify-between gap-3">
+        <section className="flex min-h-full flex-col px-4 pt-4 pb-[max(20px,env(safe-area-inset-bottom))] sm:px-6">
+          <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
             <div className="min-w-0">
-              <p className="mb-1.75 text-[11px] font-extrabold tracking-[0.17em] text-[#805800]">
-                AT YOUR TABLE
-              </p>
               <h2
                 id="cart-title"
-                className="m-0 text-[clamp(25px,4vw,36px)] font-black tracking-[-0.06em]"
+                className="text-[clamp(24px,4vw,30px)] leading-tight font-black tracking-tight"
               >
-                The shared cart
+                Orders
               </h2>
             </div>
             <button
               type="button"
-              className="shrink-0 rounded-md border border-line p-2 hover:bg-accent"
+              className="grid size-11 shrink-0 place-items-center rounded-md hover:bg-muted"
               aria-label="Close cart"
               ref={closeButton}
               onClick={closeDrawer}
@@ -96,20 +93,16 @@ export default function SharedCart({
               <X aria-hidden="true" size={20} />
             </button>
           </div>
-          <div className="mt-4">
+          <div className="my-3 flex justify-end">
             <button
               type="button"
               className={actionButton}
               onClick={onRefresh}
               disabled={busy}
             >
-              <RefreshCw aria-hidden="true" size={16} /> Refresh cart
+              <RefreshCw aria-hidden="true" size={16} />
             </button>
           </div>
-          <p className="mt-3 mb-7 text-[13px] leading-[1.55] text-secondary">
-            Everyone at this table sees the same cart. Refresh to pick up
-            changes from another phone.
-          </p>
           {receipt && (
             <OrderConfirmation
               receipt={receipt}
@@ -230,18 +223,18 @@ export default function SharedCart({
                           {line.quantity}×
                         </span>
                         <div className="min-w-0 flex-1">
-                          <strong className="text-[15px]">
+                          <strong>
                             {line.menuItem.name}
                           </strong>
                           {line.options.length > 0 && (
-                            <p className="mt-1 text-[13px] leading-normal text-secondary wrap-anywhere">
+                            <p className="mt-1 text-[12px] leading-normal text-secondary wrap-anywhere">
                               {line.options
                                 .map((option) => option.name)
                                 .join(" · ")}
                             </p>
                           )}
                           {line.note && (
-                            <p className="mt-1 text-[13px] leading-normal text-secondary wrap-anywhere">
+                            <p className="mt-1 text-[12px] leading-normal text-secondary wrap-anywhere">
                               Note: {line.note}
                             </p>
                           )}
@@ -262,14 +255,13 @@ export default function SharedCart({
                             </p>
                           )}
                         </div>
-                        <span className="shrink-0 font-mono text-[13px]">
+                        <span className="shrink-0 font-mono text-[14px]">
                           {peso(line.lineTotal)}
                         </span>
                       </div>
-                      <div className="flex justify-end gap-2 pt-2.75">
+                      <div className="flex flex-wrap justify-end gap-3 pt-2">
                         <button
                           type="button"
-                          className={actionButton}
                           disabled={!canUpdate}
                           onClick={() => {
                             if (item) {
@@ -278,15 +270,15 @@ export default function SharedCart({
                             }
                           }}
                         >
-                          <Pencil aria-hidden="true" size={15} /> Edit
+                          <Pencil aria-hidden="true" size={17} />
                         </button>
                         <button
                           type="button"
-                          className={actionButton}
+                          className='text-danger'
                           disabled={editingBlocked || needsReview}
                           onClick={() => void onRemove(line.id, cart.version)}
                         >
-                          <Trash2 aria-hidden="true" size={15} /> Remove
+                          <Trash2 aria-hidden="true" size={18} />
                         </button>
                       </div>
                     </article>
@@ -294,97 +286,100 @@ export default function SharedCart({
                 })}
                 <div
                   data-testid="cart-total"
-                  className="flex items-baseline justify-between gap-3 border-t-2 border-ink py-4.25 font-bold"
+                  className="flex items-baseline justify-between gap-3 border-y border-control py-4 font-bold"
                 >
                   <span>Total · {cart.totals.itemCount} items</span>
                   <strong className="font-mono text-[21px]">
                     {peso(cart.totals.total)}
                   </strong>
                 </div>
-                {clearVersion !== null ? (
-                  <div
-                    className="flex flex-wrap items-center justify-end gap-2.5 text-[13px]"
-                    role="group"
-                    aria-label="Clear cart confirmation"
-                  >
-                    <span className="mr-auto" role="status">
-                      {clearVersion === cart.version
-                        ? "Remove everything from the shared cart?"
-                        : "The cart changed. Review it before clearing."}
-                    </span>
-                    <button
-                      type="button"
-                      className={actionButton}
-                      disabled={
-                        editingBlocked ||
-                        needsReview ||
-                        clearVersion !== cart.version
-                      }
-                      onClick={async () => {
-                        setClearVersion(null);
-                        await onClear(clearVersion);
-                      }}
-                    >
-                      Yes, clear cart
-                    </button>
-                    <button
-                      className={actionButton}
-                      type="button"
-                      onClick={() => setClearVersion(null)}
-                    >
-                      {clearVersion === cart.version ? "Keep items" : "Dismiss"}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className={`${actionButton} ml-auto flex`}
-                    disabled={editingBlocked || needsReview}
-                    onClick={() => setClearVersion(cart.version)}
-                  >
-                    Clear cart
-                  </button>
-                )}
               </div>
             ))}
-          {review ? (
-            <OrderReview
-              cart={review}
-              tableName={table.name}
-              heading={reviewHeading}
-              changed={!cart || !sameReviewedCart(cart, review)}
-              disabled={editingBlocked || needsReview || !canEdit}
-              onBack={() => {
-                setReview(null);
-                closeButton.current?.focus();
-              }}
-              onPlace={(customerName) => {
-                checkout.place(review, customerName);
-                setReview(null);
-                closeButton.current?.focus();
-              }}
-            />
-          ) : (
-            !!cart?.items.length && (
-              <button
-                type="button"
-                className="my-4 self-start rounded-lg bg-accent px-4 py-3 font-extrabold text-ink hover:bg-[#ffd34d] disabled:opacity-55"
-                disabled={
-                  editingBlocked ||
-                  needsReview ||
-                  !canEdit ||
-                  clearVersion !== null
-                }
-                onClick={() => {
-                  checkout.clearNotice();
-                  setReview(cart);
+          <div className={`${review ? "" : "mt-auto"} grid gap-2`}>
+            {!!cart?.items.length &&
+              (clearVersion !== null ? (
+                <div
+                  className="flex flex-wrap items-center justify-end gap-2.5 pt-3 text-sm"
+                  role="group"
+                  aria-label="Clear cart confirmation"
+                >
+                  <span className="mr-auto" role="status">
+                    {clearVersion === cart.version
+                      ? "Remove everything from the shared cart?"
+                      : "The cart changed. Review it before clearing."}
+                  </span>
+                  <button
+                    type="button"
+                    className={`${actionButton} text-danger`}
+                    disabled={
+                      editingBlocked ||
+                      needsReview ||
+                      clearVersion !== cart.version
+                    }
+                    onClick={async () => {
+                      setClearVersion(null);
+                      await onClear(clearVersion);
+                    }}
+                  >
+                    Yes, clear cart
+                  </button>
+                  <button
+                    className={actionButton}
+                    type="button"
+                    onClick={() => setClearVersion(null)}
+                  >
+                    {clearVersion === cart.version ? "Keep items" : "Dismiss"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={`${actionButton} mt-3 w-full`}
+                  disabled={editingBlocked || needsReview}
+                  onClick={() => setClearVersion(cart.version)}
+                >
+                  Clear cart
+                </button>
+              ))}
+            {review ? (
+              <OrderReview
+                cart={review}
+                tableName={table.name}
+                heading={reviewHeading}
+                changed={!cart || !sameReviewedCart(cart, review)}
+                disabled={editingBlocked || needsReview || !canEdit}
+                onBack={() => {
+                  setReview(null);
+                  closeButton.current?.focus();
                 }}
-              >
-                Review order
-              </button>
-            )
-          )}
-          <p className="mt-auto border-t border-line pt-4 text-[13px] leading-[1.55] text-secondary">
+                onPlace={(customerName) => {
+                  checkout.place(review, customerName);
+                  setReview(null);
+                  closeButton.current?.focus();
+                }}
+              />
+            ) : (
+              !!cart?.items.length && (
+                <button
+                  type="button"
+                  className={`${primaryButton} w-full`}
+                  disabled={
+                    editingBlocked ||
+                    needsReview ||
+                    !canEdit ||
+                    clearVersion !== null
+                  }
+                  onClick={() => {
+                    checkout.clearNotice();
+                    setReview(cart);
+                  }}
+                >
+                  Review order
+                </button>
+              )
+            )}
+          </div>
+          <p className="mt-4 border-t border-line pt-3 text-sm text-secondary">
             Pay at the counter when your order is served.
           </p>
         </section>
@@ -392,32 +387,42 @@ export default function SharedCart({
       <div
         data-testid="cart-dock"
         role="region"
-        className="fixed inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-ink px-[max(24px,calc((100vw-1112px)/2))] py-3 text-paper shadow-[0_-6px_24px_#0a0a0a16] max-[600px]:px-4.5 max-[600px]:pb-[max(12px,env(safe-area-inset-bottom))]"
+        className="min-w-0"
         aria-label="Shared cart summary"
       >
-        <div className="grid gap-0.75">
-          <span className="text-[10px] font-extrabold tracking-[0.13em]">
-            {notice
-              ? "CART NEEDS ATTENTION"
-              : `SHARED CART · ${cart?.totals.itemCount ?? 0} ITEMS`}
-          </span>
-          <strong className="font-mono text-[17px]">
-            {cart ? peso(cart.totals.total) : "—"}
-          </strong>
-        </div>
         <button
           ref={trigger}
           id="cart-trigger"
           type="button"
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-accent px-4 py-2.75 font-extrabold text-ink hover:bg-[#ffd34d]"
+          className={`${primaryButton} relative flex-wrap gap-x-2 shadow-lg ring-1 ring-ink/15`}
           onClick={() => setOpen(true)}
         >
+          <span
+            className={notice ? "sr-only min-[420px]:not-sr-only" : "sr-only"}
+          >
+            {notice ? "Review cart" : "View cart"}
+          </span>
+          {notice && (
+            <span className="min-[420px]:hidden" aria-hidden="true">
+              Review cart
+            </span>
+          )}
+          <strong className="font-mono">
+            {cart ? peso(cart.totals.total) : "—"}
+          </strong>
+          {cart && cart.totals.itemCount > 0 && (
+            <span className="absolute -top-2 -left-1.5 min-w-5 rounded-full bg-ink px-1 text-center font-mono text-xs leading-5 text-paper">
+              {cart.totals.itemCount}
+              <span className="sr-only">
+                {cart.totals.itemCount === 1 ? " item" : " items"}
+              </span>
+            </span>
+          )}
           {notice ? (
             <Eye aria-hidden="true" size={18} />
           ) : (
             <ShoppingCart aria-hidden="true" size={18} />
           )}
-          {notice ? "Review cart" : "View cart"}
         </button>
       </div>
     </>

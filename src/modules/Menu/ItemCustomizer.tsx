@@ -1,6 +1,7 @@
 "use client";
 
 import Modal from "@/components/Modal";
+import { primaryButton } from "@/components/button-styles";
 import QuantityField from "@/components/fields/QuantityField";
 import TextareaField from "@/components/fields/TextareaField";
 import { CART_MAX_QUANTITY, CART_NOTE_LIMIT } from "@/constants/cart";
@@ -36,29 +37,24 @@ export default function ItemCustomizer({
   return (
     <Modal
       title={item.name}
-      eyebrow="MADE YOUR WAY"
       closeLabel="Close customization"
       onClose={onClose}
       returnFocusId="cart-trigger"
     >
       <form ref={form} onSubmit={(event) => void submit(event)}>
         {item.description && (
-          <p className="mt-3.5 mb-6.25 text-sm leading-normal text-secondary">
+          <p className="mt-1 mb-4 text-sm leading-normal text-secondary">
             {item.description}
           </p>
         )}
-        <p className="mt-3 mb-4.5 text-[13px] leading-normal text-secondary">
-          Choose your options, then tap {line ? "Update item" : "Add to cart"}{" "}
-          below to save.
-        </p>
         {item.optionGroups.map((group) => (
           <fieldset
-            className="mt-4 border-t border-line pt-4.25 pb-1"
+            className="mt-4 border-t border-line pt-2"
             key={group.id}
           >
             <legend className="float-left w-full text-base font-extrabold">
               {group.name}{" "}
-              <span className="mt-0.75 mb-2.5 block text-xs font-normal text-secondary">
+              <span className="mt-0.5 mb-1 block text-sm font-normal text-secondary">
                 {group.minSelections === group.maxSelections
                   ? `Choose ${group.minSelections}`
                   : `Choose ${group.minSelections}–${group.maxSelections}`}
@@ -66,11 +62,12 @@ export default function ItemCustomizer({
             </legend>
             {group.options.map((option) => (
               <label
-                className={`flex cursor-pointer items-center gap-2.5 border-b border-line px-0.5 py-3 text-sm ${option.isAvailable ? "" : "text-[#69645c]"}`}
+                className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded px-1 py-2 text-sm has-checked:bg-muted ${option.isAvailable ? "" : "text-secondary"}`}
                 key={option.id}
               >
                 <input
-                  type="checkbox"
+                  type={group.minSelections === 1 && group.maxSelections === 1 ? "radio" : "checkbox"}
+                  name={`option-group-${group.id}`}
                   className="size-4.5 shrink-0 accent-[#a57600]"
                   checked={selected.includes(option.id)}
                   disabled={!option.isAvailable || busy}
@@ -98,7 +95,7 @@ export default function ItemCustomizer({
           value={note}
           disabled={busy}
           rows={3}
-          placeholder="Allergies or requests? Tell us here."
+          placeholder="Special requests? Tell us here."
           onChange={(event) => setNote(event.target.value)}
         />
         <QuantityField
@@ -122,10 +119,11 @@ export default function ItemCustomizer({
         )}
         <button
           type="submit"
-          className="flex w-full items-center justify-between gap-3 rounded-lg bg-accent px-4.25 py-3.75 font-extrabold disabled:cursor-not-allowed disabled:opacity-55"
+          className={`${primaryButton} mt-2 w-full flex-wrap`}
           disabled={busy || !item.isAvailable}
         >
           <span>{busy ? "Saving…" : line ? "Update item" : "Add to cart"}</span>
+          <span aria-hidden="true">·</span>
           <strong className="font-mono">
             {peso(fromCentavos(unit * quantity))}
           </strong>

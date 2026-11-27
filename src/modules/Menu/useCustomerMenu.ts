@@ -1,4 +1,4 @@
-import useIntroReveal from "./useIntroReveal";
+import { useEffect } from "react";
 import useItemEditor from "./useItemEditor";
 import usePublicMenu from "./usePublicMenu";
 import useTableVisit from "./useTableVisit";
@@ -14,7 +14,6 @@ export function useCustomerMenu({
   mode: "browse" | "table";
   visit: ReturnType<typeof useTableVisit>;
 }) {
-  const intro = useIntroReveal();
   const { menu, store, retryPublic, refreshMenu, refreshStore } =
     usePublicMenu();
   const { table, retryTable, resetVisit, endVisit, updateTable } = visit;
@@ -40,6 +39,15 @@ export function useCustomerMenu({
     cart.applyPlacementCart,
     retryPublic,
   );
+  const { refresh: refreshOrders } = orders;
+  const placedOrderId = checkout.receipt?.order.id;
+  useEffect(() => {
+    if (sessionId) void refreshOrders();
+  }, [sessionId, refreshOrders]);
+  useEffect(() => {
+    if (placedOrderId) void refreshOrders();
+  }, [placedOrderId, refreshOrders]);
+
   const editor = useItemEditor();
   const canAdd =
     mode === "table" &&
@@ -60,7 +68,6 @@ export function useCustomerMenu({
 
   return {
     table,
-    intro,
     store,
     retryPublic,
     cart,

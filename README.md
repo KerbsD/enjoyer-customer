@@ -18,7 +18,7 @@ Browse the menu at `/`. To test a table, create an active table in the admin app
 
 To add an item, tap **Customize item**, choose any required options, then tap **Add to cart** in the dialog. The first button only opens customization. **View cart** opens the shared cart in a right-side drawer; Escape or the close button dismisses it. The cart updates live, with periodic checks if streaming is unavailable. Tab focus and **Refresh cart** still work. If another phone changes the cart first, review its latest contents before retrying. Notes are per item (up to 500 characters), not one order-wide note.
 
-The menu entrance, item dialog, and cart drawer use GSAP motion. They honor the device's reduced-motion preference.
+The menu, item dialog, and cart drawer open without animation.
 
 Cart/editor state resets for each visit. A refresh resumes the exact visit the
 tab remembered. If that visit was replaced or idle-expired, tap **Reset this

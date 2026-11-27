@@ -4,7 +4,7 @@ import { ClipboardList, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import Drawer from "@/components/Drawer";
-import { actionButton } from "@/components/button-styles";
+import { actionButton, primaryButton } from "@/components/button-styles";
 import { ORDER_STATUS_LABEL } from "@/constants/orders";
 import { peso, shopTime } from "@/lib/shop-format";
 
@@ -14,16 +14,16 @@ import { canCancelOrder } from "./useTableOrders";
 
 function OrderDetails({ order }: { order: TableOrder }) {
   return (
-    <details className="mt-3 text-sm">
-      <summary className="cursor-pointer font-bold">
+    <details className="mt-2 text-sm">
+      <summary className="min-h-11 cursor-pointer py-3 font-bold">
         Details for order {order.orderNumber}
       </summary>
       <p className="mt-2 text-secondary">
         <time dateTime={order.createdAt}>{shopTime(order.createdAt)}</time>
       </p>
-      <ul className="mt-2 divide-y divide-line">
+      <ul className="mt-2 divide-y-2 divide-line rounded-lg border border-dashed border-control px-3">
         {order.items.map((item) => (
-          <li key={item.id} className="py-2">
+          <li key={item.id} className="py-4">
             <div className="flex justify-between gap-3 font-bold">
               <span className="wrap-anywhere">
                 {item.quantity} × {item.name}
@@ -68,7 +68,9 @@ export default function TableOrders({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    const onFocus = () => { if (active) void refresh(); };
+    const onFocus = () => {
+      if (active) void refresh();
+    };
     queueMicrotask(onFocus);
     window.addEventListener("focus", onFocus);
     return () => {
@@ -85,14 +87,16 @@ export default function TableOrders({
 
   return (
     <>
-      <button
-        ref={trigger}
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-sm font-extrabold text-ink hover:bg-[#ffd34d]"
-      >
-        <ClipboardList aria-hidden="true" size={17} /> Table orders
-      </button>
+      {!!data?.orders.length && (
+        <button
+          ref={trigger}
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`${actionButton} shrink-0 shadow-lg`}
+        >
+          <ClipboardList aria-hidden="true" size={17} /> Table orders
+        </button>
+      )}
       <Drawer
         open={open}
         onClose={close}
@@ -103,38 +107,39 @@ export default function TableOrders({
             const menu = document.getElementById("menu");
             menu?.focus();
             menu?.scrollIntoView();
-          } else trigger.current?.focus({ preventScroll: true });
+          } else {
+            const target =
+              trigger.current ?? document.getElementById("cart-trigger");
+            target?.focus({ preventScroll: true });
+          }
         }}
       >
-        <section className="flex min-h-full flex-col gap-4 px-6 pt-7 pb-8 max-[420px]:px-4.5">
-          <div className="flex items-start justify-between gap-3">
+        <section className="flex min-h-full flex-col gap-4 px-4 pt-4 pb-[max(20px,env(safe-area-inset-bottom))] sm:px-6">
+          <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
             <div>
-              <p className="wrap-anywhere text-sm font-bold text-secondary">
-                Orders for {tableName}
-              </p>
               <h2
                 id="table-orders-title"
-                className="text-3xl font-black tracking-tight"
+                className="text-[clamp(24px,4vw,30px)] leading-tight font-black tracking-tight"
               >
-                Table orders
+                Table Orders
               </h2>
+              <p className="mt-1 text-sm text-secondary wrap-anywhere">
+                Orders for {tableName}
+              </p>
             </div>
             <button
               type="button"
               aria-label="Close table orders"
               onClick={close}
-              className="shrink-0 rounded-md border border-line p-2 hover:bg-accent"
+              className="grid size-11 shrink-0 place-items-center rounded-md hover:bg-muted"
             >
               <X aria-hidden="true" size={20} />
             </button>
           </div>
-          <p className="text-sm text-secondary">
-            Orders for this visit only. Pay at the counter when served.
-          </p>
           <button
             ref={refreshButton}
             type="button"
-            className={`${actionButton} self-start`}
+            className={`${actionButton} self-end`}
             aria-disabled={busy}
             onClick={() => {
               if (busy) return;
@@ -142,7 +147,7 @@ export default function TableOrders({
               void orders.refresh();
             }}
           >
-            <RefreshCw aria-hidden="true" size={16} /> Refresh orders
+            <RefreshCw aria-hidden="true" size={16} />
           </button>
           {!data && !readError && !notice && (
             <p role="status">Loading table orders…</p>
@@ -173,7 +178,7 @@ export default function TableOrders({
           )}
           {data && (
             <>
-              <div className="rounded-lg border border-line bg-muted p-4">
+              <div className="rounded-lg border-2 border-accent bg-muted p-4">
                 <div className="flex justify-between gap-2 font-black">
                   <span>Table order total</span>
                   <span className="font-mono">{peso(data.summary.total)}</span>
@@ -204,13 +209,21 @@ export default function TableOrders({
                         {peso(order.total)}
                       </span>
                     </div>
-                    <p className="text-sm font-bold">
-                      {ORDER_STATUS_LABEL[order.status]}
-                    </p>
-                    <p className="text-sm text-secondary">
-                      Payment:{" "}
-                      {order.paymentStatus === "paid" ? "Paid" : "Unpaid"}
-                    </p>
+                    <div className="flex justify-between">
+                      <p
+                        className={`text-sm font-bold ${order.status === "rejected" || order.status === "cancelled" ? "text-danger" : order.status === "pending_confirmation" ? "text-ink" : "text-success"}`}
+                      >
+                        {ORDER_STATUS_LABEL[order.status]}
+                      </p>
+                      <p className="text-sm text-secondary">
+                        Payment:{" "}
+                        <b
+                          className={`${order.paymentStatus === "paid" ? "text-success" : "text-danger"}`}
+                        >
+                          {order.paymentStatus === "paid" ? "Paid" : "Unpaid"}
+                        </b>
+                      </p>
+                    </div>
                     <OrderDetails order={order} />
                     {order.status === "preparing" ||
                     order.status === "ready" ||
@@ -256,7 +269,7 @@ export default function TableOrders({
                       ) : (
                         <button
                           type="button"
-                          className={`${actionButton} mt-3`}
+                          className={`${actionButton} mt-3 text-danger`}
                           disabled={busy || !!readError}
                           aria-label={`Cancel order ${order.orderNumber}`}
                           onClick={() => {
@@ -282,7 +295,7 @@ export default function TableOrders({
                 data.summary.ordersRemaining > 0 && (
                   <button
                     type="button"
-                    className="self-start rounded-lg bg-accent px-4 py-3 font-extrabold text-ink"
+                    className={`${primaryButton} mt-auto w-full`}
                     onClick={() => {
                       focusMenu.current = true;
                       close();

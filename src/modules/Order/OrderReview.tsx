@@ -1,7 +1,7 @@
 import { ClipboardCheck, ReceiptText } from "lucide-react";
 import { useId, useState } from "react";
 
-import { actionButton } from "@/components/button-styles";
+import { actionButton, primaryButton } from "@/components/button-styles";
 import { ORDER_NAME_MAX_LENGTH, ORDER_STATUS_LABEL } from "@/constants/orders";
 import { peso } from "@/lib/shop-format";
 import { orderNameSchema } from "@/schemas/orders";
@@ -22,7 +22,7 @@ export function OrderReview({
   const [nameError, setNameError] = useState(false);
   return (
     <form
-      className="my-5 grid gap-4 rounded-lg border border-line bg-muted p-4"
+      className="my-3 grid gap-4 rounded-xl border border-dashed border-control bg-muted p-4"
       aria-labelledby="order-review"
       onSubmit={(event) => {
         event.preventDefault();
@@ -93,13 +93,13 @@ export function OrderReview({
             setName(event.target.value);
             setNameError(false);
           }}
-          className="min-w-0 rounded-md border border-line bg-paper px-3 py-2.5"
+          className="min-h-11 min-w-0 rounded-md border border-control bg-paper px-3 py-2.5 text-base aria-invalid:border-danger"
         />
         <p id={`${fieldId}-hint`} className="text-secondary">
           Required so staff know who the order is for.
         </p>
         {nameError && (
-          <p id={`${fieldId}-error`} role="alert">
+          <p id={`${fieldId}-error`} className="font-bold text-danger" role="alert">
             Enter a first name or nickname on one line.
           </p>
         )}
@@ -116,7 +116,7 @@ export function OrderReview({
         <button
           type="submit"
           disabled={changed || disabled}
-          className="rounded-lg bg-accent px-4 py-3 font-extrabold text-ink hover:bg-[#ffd34d] disabled:opacity-55"
+          className={primaryButton}
         >
           Place order
         </button>
@@ -134,7 +134,7 @@ export function OrderConfirmation({
   const inactive = order.status === "rejected" || order.status === "cancelled";
   return (
     <section
-      className="mb-5 grid gap-2 rounded-lg border border-line bg-muted p-4"
+      className="mb-5 grid gap-2 rounded-xl border border-accent bg-muted p-4"
       aria-labelledby="order-confirmation"
     >
       <h3
@@ -145,7 +145,7 @@ export function OrderConfirmation({
       >
         <ReceiptText aria-hidden="true" size={20} /> Order {order.orderNumber}
       </h3>
-      <p className="font-bold">{ORDER_STATUS_LABEL[order.status]}</p>
+      <p className={`font-bold ${inactive ? "text-danger" : "text-ink"}`}>{ORDER_STATUS_LABEL[order.status]}</p>
       {order.status === "pending_confirmation" && (
         <p className="text-sm">
           Please wait for staff to confirm this order before sending another.

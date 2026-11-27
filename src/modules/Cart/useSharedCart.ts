@@ -116,6 +116,7 @@ export default function useSharedCart(
   const mutate = async (
     operation: (token: string, cart: Cart) => Promise<{ data: Cart }>,
     expectedVersion: number,
+    { revealOnSuccess = true } = {},
   ): Promise<CartActionResult> => {
     const token = tableTokenFromHash(window.location.hash);
     const current = cartRef.current;
@@ -176,7 +177,7 @@ export default function useSharedCart(
       cartRef.current = result.data;
       setState({ kind: "ready", data: result.data, sessionId });
       setRefreshError("");
-      setRevealId((value) => value + 1);
+      if (revealOnSuccess) setRevealId((value) => value + 1);
       return "success";
     } catch (error) {
       if (!active()) return "error";
@@ -302,6 +303,7 @@ export default function useSharedCart(
             version: cart.version,
           }),
         expectedVersion,
+        { revealOnSuccess: false },
       ),
     updateItem: (
       id: number,

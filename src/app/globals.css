@@ -2,18 +2,26 @@
 
 @theme {
   --color-paper: #fcfaf6;
-  --color-ink: #0a0a0a;
-  --color-secondary: #444444;
+  --color-ink: #151515;
+  --color-secondary: #625c54;
   --color-accent: #f5b800;
   --color-line: #e3e0da;
   --color-muted: #f3f0e9;
+  --color-control: #888785;
+  --color-danger: #a02f16;
+  --color-success: #21643d;
+}
+
+@theme inline {
+  --font-display: var(
+    --font-dm-serif-display,
+    Georgia,
+    "Times New Roman",
+    serif
+  );
 }
 
 @layer base {
-  html {
-    scroll-behavior: smooth;
-  }
-
   body {
     background: var(--color-paper);
     color: var(--color-ink);
@@ -32,11 +40,5 @@
   :focus-visible {
     outline: 3px solid #805800;
     outline-offset: 3px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
   }
 }

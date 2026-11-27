@@ -18,10 +18,10 @@ export default function QuantityField({
   return (
     <div className="flex items-center justify-between py-4.75 text-sm font-extrabold">
       <span>{label}</span>
-      <div className="flex items-center overflow-hidden rounded-lg border border-line">
+      <div className="flex items-center rounded-lg border border-control">
         <button
           type="button"
-          className="h-10 w-10.5 bg-white text-xl disabled:opacity-55"
+          className="size-11 rounded-l-[7px] bg-muted text-xl hover:bg-line disabled:opacity-55"
           aria-label={`Decrease ${label.toLowerCase()}`}
           disabled={value <= min || disabled}
           onClick={() => onChange(value - 1)}
@@ -33,7 +33,7 @@ export default function QuantityField({
         </output>
         <button
           type="button"
-          className="h-10 w-10.5 bg-white text-xl disabled:opacity-55"
+          className="size-11 rounded-r-[7px] bg-muted text-xl hover:bg-line disabled:opacity-55"
           aria-label={`Increase ${label.toLowerCase()}`}
           disabled={value >= max || disabled}
           onClick={() => onChange(value + 1)}

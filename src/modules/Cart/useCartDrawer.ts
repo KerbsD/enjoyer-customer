@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Cart, SharedCartProps } from "@/types/cart";
 
-export function useAnimateSharedCart({
+export function useCartDrawer({
   state,
   needsReview,
   revealId,
@@ -9,7 +9,8 @@ export function useAnimateSharedCart({
 }: Pick<SharedCartProps, "state" | "needsReview" | "revealId" | "customizing">) {
   const [open, setOpen] = useState(false);
   const cart: Cart | null = state.kind === "ready" ? state.data : null;
-  const lastReveal = useRef(0);
+  // Opening the menu again is not a new cart action.
+  const lastReveal = useRef(revealId);
 
   useEffect(() => {
     // Only local actions reveal the drawer. A remote refresh must never steal

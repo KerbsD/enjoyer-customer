@@ -17,7 +17,7 @@ export default function TextareaField({
   return (
     <>
       <label
-        className="mt-6 mb-2 block text-sm font-extrabold"
+        className="mt-4 mb-2 block text-sm font-extrabold"
         htmlFor={fieldId}
       >
         {label}{" "}
@@ -27,7 +27,7 @@ export default function TextareaField({
       </label>
       <textarea
         id={fieldId}
-        className="block w-full resize-y rounded-lg border border-[#a9a49b] bg-white p-3 text-sm"
+        className="block w-full resize-y rounded-md border border-control bg-paper p-3 text-base"
         {...textareaProps}
       />
     </>

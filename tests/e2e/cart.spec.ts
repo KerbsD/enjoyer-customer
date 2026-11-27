@@ -720,6 +720,7 @@ async function fixture(context: BrowserContext, closed = false) {
     replaceOnNextResume: () => {
       replaceOnResume = true;
     },
+    addMenuCategory: (category: (typeof menu)[number]) => currentMenu.push(category),
     opens: () => openCalls,
     resumes: () => resumeCalls,
     orderPosts: () => orderPosts,
@@ -806,6 +807,7 @@ async function fixture(context: BrowserContext, closed = false) {
 async function open(page: Page, total = "₱0.00") {
   await page.goto(`/order#table=${token}`);
   await expect(page.getByText("Test Table", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "View menu" }).click();
   await expect(page.getByTestId("cart-dock")).toContainText(total);
 }
 
@@ -816,7 +818,117 @@ async function viewCart(page: Page) {
   ).toBeVisible();
 }
 
-test("the cart slides in as a keyboard-dismissible right drawer", async ({
+test("the welcome and menu headers use the Enjoyer branding", async ({
+  page,
+  context,
+}) => {
+  await fixture(context);
+  await page.goto("/");
+  const headline = page.getByRole("heading", { name: "Sip, Stay, Enjoy." });
+  await expect(headline).toHaveCSS("font-family", /DM[ _]Serif[ _]Display/i);
+  await expect(headline).toHaveCSS("font-style", "italic");
+  await expect(page.locator('head link[rel="icon"]')).toHaveAttribute("href", "/favicon.png");
+  const favicon = await page.request.get("/favicon.png");
+  expect(favicon.ok()).toBe(true);
+  expect(favicon.headers()["content-type"]).toBe("image/png");
+  const photo = page.locator('header img[src*="landing-img.jpg"]:visible');
+  await expect(photo).toBeVisible();
+  await expect.poll(() => photo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+
+  for (const file of ["logo-white.png", "logo.png"]) {
+    if (file === "logo.png") {
+      await page.getByRole("button", { name: "View menu", exact: true }).click();
+    }
+    const logo = page.locator(`header img[src="/${file}"]:visible`);
+    await expect(logo).toBeVisible();
+    await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  }
+  await expect(photo).toHaveCount(0);
+});
+
+test("View menu focuses the menu without starting a table visit", async ({
+  page,
+  context,
+}) => {
+  const server = await fixture(context);
+  await page.setViewportSize({ width: 380, height: 800 });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Sip, Stay, Enjoy." }),
+  ).toBeVisible();
+  const viewMenu = page.getByRole("button", { name: "View menu" });
+  await viewMenu.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("main", { name: "Menu", exact: true }),
+  ).toBeFocused();
+  await expect(page.getByTestId("cart-dock")).toHaveCount(0);
+  await expect(
+    page.getByRole("tablist", { name: "Menu categories" }),
+  ).toBeInViewport();
+  await expect(page).toHaveURL(/\/menu$/);
+  await expect(page.getByRole("heading", { name: "Sip, Stay, Enjoy." })).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByRole("button", { name: "View menu" })).toBeVisible();
+  expect(server.opens()).toBe(0);
+});
+
+test("the table menu and welcome screen share the same visit and cart", async ({
+  page,
+  context,
+}) => {
+  const server = await fixture(context);
+  await open(page);
+  await expect(page).toHaveURL(`/order/menu#table=${token}`);
+  await addLatte(page);
+  await page.getByRole("button", { name: "Close cart" }).click();
+  await page.getByRole("button", { name: "Back to welcome" }).click();
+  await expect(page).toHaveURL(`/order#table=${token}`);
+  await expect(page.getByRole("button", { name: "View menu" })).toBeFocused();
+  await expect(page.getByTestId("cart-dock")).toHaveCount(0);
+  await page.getByRole("button", { name: "View menu" }).click();
+  await expect(page.getByTestId("cart-dock")).toContainText("₱120.00");
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  expect(server.opens()).toBe(1);
+  expect(server.resumes()).toBe(0);
+  await page.reload();
+  await expect(page.getByTestId("cart-dock")).toContainText("₱120.00");
+  expect(server.opens()).toBe(1);
+  expect(server.resumes()).toBe(1);
+});
+
+test("the menu shows only the selected category and keeps the shared cart", async ({
+  page,
+  context,
+}) => {
+  const server = await fixture(context);
+  server.addMenuCategory({
+    id: 2,
+    name: "Tea",
+    sortOrder: 1,
+    items: [{ ...menu[0].items[0], id: 9, name: "Jasmine Tea", optionGroups: [] }],
+  });
+  await open(page);
+  const coffee = page.getByRole("tab", { name: "Coffee" });
+  const tea = page.getByRole("tab", { name: "Tea" });
+  await expect(coffee).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Jasmine Tea" })).toHaveCount(0);
+  await addLatte(page);
+  await page.getByRole("button", { name: "Close cart" }).click();
+  await tea.click();
+  await expect(tea).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: "Tea" })).toContainText("02 / 02");
+  await expect(page.getByRole("heading", { name: "Test Latte" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Jasmine Tea" })).toBeVisible();
+  await expect(page.getByTestId("cart-dock")).toContainText("₱120.00");
+  await tea.press("ArrowLeft");
+  await expect(coffee).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Test Latte" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Jasmine Tea" })).toHaveCount(0);
+  expect(server.opens()).toBe(1);
+});
+
+test("the cart opens as a keyboard-dismissible right drawer", async ({
   page,
   context,
 }) => {
@@ -842,27 +954,23 @@ test("the cart slides in as a keyboard-dismissible right drawer", async ({
   await expect(drawer).toHaveCount(0);
 });
 
-test("reduced motion keeps the drawer and customizer usable without transitions", async ({
+test("the drawer and customizer open without animation", async ({
   page,
   context,
 }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await fixture(context);
   await open(page);
   await viewCart(page);
   const drawer = page.getByRole("dialog", { name: "The shared cart" });
-  const offset = await drawer
-    .locator("[data-drawer-surface]")
-    .evaluate(
-      (element) =>
-        new DOMMatrixReadOnly(getComputedStyle(element).transform).m41,
-    );
-  expect(offset).toBe(0);
+  await expect(page.locator("html")).toHaveCSS("scroll-behavior", "auto");
+  expect(await drawer.evaluate((element) => element.getAnimations({ subtree: true }).length)).toBe(0);
   await page.keyboard.press("Escape");
   await expect(drawer).toHaveCount(0);
   await page.getByRole("button", { name: /Customize item/ }).click();
   const customizer = page.getByRole("dialog", { name: "Test Latte" });
   await expect(customizer).toBeVisible();
+  expect(await customizer.evaluate((element) => element.getAnimations({ subtree: true }).length)).toBe(0);
   await page.keyboard.press("Escape");
   await expect(customizer).toHaveCount(0);
 });
@@ -879,7 +987,8 @@ test("customize, edit, remove and clear the shared cart", async ({
   await page.getByRole("button", { name: "Close cart" }).click();
   await page.getByRole("button", { name: /Customize item/ }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText(/tap Add to cart below to save/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Add to cart/ })).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: /Iced/ })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await expect(dialog.getByText("Choose 1")).toBeVisible();
   await dialog.getByRole("button", { name: /Add to cart/ }).click();
@@ -892,6 +1001,7 @@ test("customize, edit, remove and clear the shared cart", async ({
     dialog.getByRole("button", { name: /Add to cart/ }),
   ).toContainText("₱300.00");
   await dialog.getByRole("button", { name: /Add to cart/ }).click();
+  await viewCart(page);
   await expect(page.getByTestId("cart-total")).toContainText("₱300.00");
   await expect(page.getByTestId("cart-line")).toContainText("less ice");
   await expect(
@@ -949,6 +1059,7 @@ test("customize, edit, remove and clear the shared cart", async ({
     .getByRole("dialog")
     .getByRole("button", { name: /Add to cart/ })
     .click();
+  await viewCart(page);
   await page.getByRole("button", { name: "Clear cart" }).click();
   await page.getByRole("button", { name: "Yes, clear cart" }).click();
   await expect(page.getByTestId("cart-dock")).toContainText("₱0.00");
@@ -977,6 +1088,7 @@ test("a failed add stays open and explains why the cart did not change", async (
     .getByRole("button", { name: /Add to cart/ })
     .click();
   await expect(page.getByRole("dialog", { name: "Test Latte" })).toHaveCount(0);
+  await viewCart(page);
   await expect(page.getByTestId("cart-line")).toHaveCount(1);
 });
 
@@ -1021,6 +1133,7 @@ test("a stale phone must review the latest cart before writing again", async ({
       .getByRole("dialog")
       .getByRole("button", { name: /Add to cart/ })
       .click();
+    await viewCart(first);
     await expect(first.getByTestId("cart-total")).toContainText("₱120.00");
     await second.getByRole("button", { name: /Customize item/ }).click();
     await second.getByRole("dialog").getByLabel("Hot").check();
@@ -1043,6 +1156,7 @@ test("a stale phone must review the latest cart before writing again", async ({
       .getByRole("dialog")
       .getByRole("button", { name: /Add to cart/ })
       .click();
+    await viewCart(second);
     await expect(second.getByTestId("cart-line")).toHaveCount(2);
     await first.getByRole("button", { name: "Refresh cart" }).click();
     await expect(first.getByTestId("cart-line")).toHaveCount(2);
@@ -1086,7 +1200,10 @@ test("browse mode and closed shop cannot add; narrow layouts remain accessible",
   await fixture(context, true);
   await page.goto("/");
   await expect(page.getByText(/We're closed right now/)).toBeVisible();
-  await expect(page.getByText("SOLD OUT TODAY")).toBeVisible();
+  await page.getByRole("button", { name: "View menu" }).click();
+  await expect(
+    page.getByRole("main", { name: "Menu" }).getByText("SOLD OUT TODAY"),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /Customize item/ }),
   ).toHaveCount(0);
@@ -1112,19 +1229,38 @@ test("browse mode and closed shop cannot add; narrow layouts remain accessible",
 });
 
 async function customize(page: Page) {
-  await page.getByRole("button", { name: /Customize item/ }).click();
+  await page.getByRole("button", { name: "Add to Order" }).click();
   const dialog = page.getByRole("dialog", { name: "Test Latte" });
   await dialog.getByLabel("Iced").check();
   return dialog;
 }
 
-async function addLatte(page: Page) {
+async function submitLatte(page: Page) {
   const dialog = await customize(page);
   await dialog.getByRole("button", { name: /Add to cart/ }).click();
-  await expect(
-    page.getByRole("dialog", { name: "The shared cart" }),
-  ).toBeVisible();
+  await expect(dialog).toHaveCount(0);
 }
+
+async function addLatte(page: Page) {
+  await submitLatte(page);
+  await viewCart(page);
+}
+
+test("adding items updates the cart dock without opening the drawer", async ({
+  page,
+  context,
+}) => {
+  await fixture(context);
+  await open(page);
+  for (const total of ["₱120.00", "₱240.00"]) {
+    await submitLatte(page);
+    await expect(page.getByTestId("cart-dock")).toContainText(total);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Customize item/ })).toBeVisible();
+  }
+  await viewCart(page);
+  await expect(page.getByTestId("cart-total")).toContainText("₱240.00");
+});
 
 test("failed background refresh preserves the cart and recovers its warning", async ({
   page,
@@ -1302,7 +1438,7 @@ test("new visits do not inherit conflict review state", async ({
   const server = await fixture(context);
   await open(page);
   server.dropResponseOnce();
-  await addLatte(page);
+  await submitLatte(page);
   await expect(page.getByTestId("cart-conflict")).toBeVisible();
   server.endVisit();
   await page.getByRole("button", { name: "Refresh cart" }).click();
@@ -1336,9 +1472,12 @@ test("late write responses cannot replace a new visit's cart", async ({
       window.location.hash = `table=${value}`;
     }, token);
     await page.getByRole("button", { name: "Reset this visit" }).click();
+    await expect(page).toHaveURL(/\/order$/);
     await page.evaluate((value) => {
       window.location.hash = `table=${value}`;
     }, token);
+    await expect(page.getByText("Test Table", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "View menu" }).click();
     await expect(
       page.getByRole("button", { name: /Customize item/ }),
     ).toBeVisible();
@@ -1375,6 +1514,7 @@ test("unavailable choices close the stale editor and refresh menu options", asyn
   const fresh = await customize(page);
   await expect(fresh.getByLabel(/Oat milk/)).toBeDisabled();
   await fresh.getByRole("button", { name: /Add to cart/ }).click();
+  await viewCart(page);
   await expect(page.getByTestId("cart-total")).toContainText("₱120.00");
 });
 
@@ -1387,7 +1527,7 @@ test("uncertain writes remain blocked until a successful recovery read", async (
   const release = server.holdRecoveryRead();
   try {
     server.dropResponseOnce();
-    await addLatte(page);
+    await submitLatte(page);
     const review = page.getByRole("button", { name: /reviewed the cart/ });
     await expect(review).toBeDisabled();
     server.failReads(true);
@@ -1416,7 +1556,7 @@ test("malformed conflict payloads require a fresh cart before review", async ({
   await open(page);
   const release = server.holdRecoveryRead(true);
   try {
-    await addLatte(page);
+    await submitLatte(page);
     const review = page.getByRole("button", { name: /reviewed the cart/ });
     await expect(review).toBeDisabled();
     await expect(page.getByTestId("cart-conflict")).toContainText(
@@ -1499,6 +1639,7 @@ test("a failed preflight keeps the editor open and doesn't require review", asyn
   expect(server.writes()).toBe(0);
   server.failReads(false);
   await dialog.getByRole("button", { name: /Add to cart/ }).click();
+  await viewCart(page);
   await expect(page.getByTestId("cart-total")).toContainText("₱120.00");
   await expect(page.getByTestId("cart-conflict")).toHaveCount(0);
   expect(server.writes()).toBe(1);
@@ -1540,6 +1681,7 @@ test("checkout reviews the table, customizations and payment before showing conf
   await item.getByLabel("Oat milk").check();
   await item.getByLabel("Note for this item").fill("less ice");
   await item.getByRole("button", { name: /Add to cart/ }).click();
+  await viewCart(page);
   const review = await reviewOrder(page, "");
   for (const text of [
     "Test Table",
@@ -1713,6 +1855,7 @@ async function placedLatte(page: Page) {
   const dialog = await customize(page);
   await dialog.getByLabel("Note for this item").fill("Less ice");
   await dialog.getByRole("button", { name: /Add to cart/ }).click();
+  await viewCart(page);
   const review = await reviewOrder(page);
   await review.getByRole("button", { name: "Place order" }).click();
   await expect(
@@ -1724,6 +1867,61 @@ async function showTableOrders(page: Page) {
   await page.getByRole("button", { name: "Table orders", exact: true }).click();
   return page.getByRole("dialog", { name: "Table orders" });
 }
+
+test("table orders only appears beside the cart after an order exists", async ({
+  page,
+  context,
+}) => {
+  await fixture(context);
+  await page.setViewportSize({ width: 320, height: 700 });
+  const initialOrders = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/tables/orders" &&
+      response.request().method() === "GET" &&
+      response.ok(),
+  );
+  await open(page);
+  await initialOrders;
+  const ordersButton = page.getByRole("button", { name: "Table orders", exact: true });
+  await expect(ordersButton).toHaveCount(0);
+  await addLatte(page);
+  const review = await reviewOrder(page);
+  await review.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByRole("heading", { name: "Order 20261119-001" })).toBeVisible();
+  await page.getByRole("button", { name: "Close cart" }).click();
+  await expect(ordersButton).toBeInViewport();
+  const cartButton = page.getByRole("button", { name: /^View cart/ });
+  const footer = page.getByRole("contentinfo");
+  await page.setViewportSize({ width: 320, height: 380 });
+  for (const top of [0, 100]) {
+    await page.evaluate((y) => window.scrollTo(0, y), top);
+    if (top > 0) expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const orders = (await ordersButton.boundingBox())!;
+    const cart = (await cartButton.boundingBox())!;
+    const footerBox = (await footer.boundingBox())!;
+    expect(orders.x + orders.width).toBeLessThanOrEqual(cart.x);
+    expect(orders.y + orders.height).toBeCloseTo(cart.y + cart.height);
+    expect(cart.y + cart.height).toBeLessThan(footerBox.y);
+    expect(footerBox.y + footerBox.height).toBeCloseTo(380);
+  }
+});
+
+test("the public menu footer stays at the bottom without ordering controls", async ({
+  page,
+  context,
+}) => {
+  await fixture(context);
+  await page.setViewportSize({ width: 320, height: 280 });
+  await page.goto("/menu");
+  await expect(page.getByRole("heading", { name: "Test Latte" })).toBeVisible();
+  const footer = page.getByRole("contentinfo");
+  await expect(footer).toBeInViewport({ ratio: 1 });
+  await expect(page.getByTestId("cart-dock")).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 100));
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const bounds = (await footer.boundingBox())!;
+  expect(bounds.y + bounds.height).toBeCloseTo(280);
+});
 
 test("a second phone can track and cancel a table order", async ({
   page,
@@ -1875,7 +2073,7 @@ test("polling does not acknowledge a failed resource refresh and stops when acce
   const server = await fixture(context);
   server.enableRealtime();
   server.failReads(true);
-  await page.goto(`/order#table=${token}`);
+  await page.goto(`/order/menu#table=${token}`);
   await expect.poll(server.failedCartReadsAfterPoll).toBeGreaterThan(0);
   server.failReads(false);
   await expect(page.getByText("Checking for updates periodically")).toBeVisible(
@@ -1926,6 +2124,7 @@ test("off-network QR scans can browse, then retry on café Wi-Fi", async ({
   await expect(
     page.getByText(/Connect to the café’s guest Wi-Fi/),
   ).toBeVisible();
+  await page.getByRole("button", { name: "View menu" }).click();
   await expect(page.getByText("Test Latte", { exact: true })).toBeVisible();
   await expect(page.getByTestId("cart-dock")).toHaveCount(0);
   expect(server.opens()).toBe(0);
